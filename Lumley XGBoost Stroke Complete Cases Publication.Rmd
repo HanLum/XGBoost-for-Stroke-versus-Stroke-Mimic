@@ -1,0 +1,3230 @@
+---
+title: "Lumley XGBoost Stroke Complete Cases"
+author: "Hannah Lumley"
+date: "9 February 2024"
+output:
+  html_document:
+    theme: journal
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##### Install Packages #####
+```{r}
+install.packages(c("vip", 
+                   "xgboost",
+                 "tidymodels",
+                 "cowplot", 
+                 "groupdata2",
+                 "ConfusionTableR",
+                 "SHAPforxgboost",
+                 "shapviz",
+                 "weights",
+                 "pROC",
+                 "precrec",
+                 "MLmetrics",
+                 "plotly",
+                 "ICEbox",
+                 "janitor", 
+                 "DiagrammeR",
+                 "DiagrammeRsvg",
+                 "rsvg", 
+                 "EIX", 
+                 "mlr3verse",
+                 "compareDF",
+                 "gt",
+                 "renv",
+                 "gtsummary",
+                 "gt",
+                 "readxl",
+                 "plyr",
+                 "tidyr",
+                 "tidyverse",
+                 "scales",
+                 "markdown",
+                 "colorspace",
+                 "ggrepel",
+                 "ggpubr",
+                 "ggplot2",
+                 "tidyr",
+                 "data.table",
+                 "xml2"))
+
+```
+
+##### Load packages #####
+```{r}
+library("vip")
+library("xgboost")
+library("tidymodels")
+library("cowplot")
+library("groupdata2")
+library("ConfusionTableR")
+library("SHAPforxgboost")
+library("shapviz")
+library("weights")
+library("pROC")
+library("precrec")
+library("MLmetrics")
+library("plotly")
+library("ICEbox")
+library("janitor") 
+library("DiagrammeR")
+library("DiagrammeRsvg")
+library("rsvg")
+library("EIX")
+library("mlr3verse")
+library("compareDF")
+library("gt")
+library("renv")
+library("gtsummary")
+library("readxl")
+library("plyr")
+library("tidyr")
+library("tidyverse")
+library("scales")
+library("markdown")
+library("colorspace")
+library("ggrepel")
+library("ggpubr")
+library("ggplot2")
+library("tidyr")
+library("data.table")
+library("xml2")
+```
+
+##### Read in data and transform variables #####
+```{r}
+
+#set working directory: setwd("~/Documents")
+
+PASTRAMI = read_excel("C:/Users/nhl60/OneDrive - Newcastle University/PhD Final/1. Retrospective Study (Machine Learning)/Data/Graham's Data/PASTRAMI Master Combi File Oct 17 Hannah.xlsx", sheet="PASTRAMI Master Cleaned")
+
+#Demographics
+PASTRAMI$Gender = as.numeric(revalue(PASTRAMI$Gender, c('Female'=2, 'Male' = 1)))
+PASTRAMI$"Age_in_Years"=as.numeric(as.character(PASTRAMI$Age))
+
+#Comorbidities ('missing' means absent):
+PASTRAMI$"History_of_Angina" =replace_na(PASTRAMI$`PMH Angina`, 0)
+PASTRAMI$"History_of_Congestive_Heart_Failure"=replace_na(PASTRAMI$`PMH CHF`, 0)
+PASTRAMI$"History_of_Hypercholesterolaemia" = replace_na(PASTRAMI$`PMH High Cholesterol`, 0)
+PASTRAMI$"History_of_Hypertension" =replace_na(PASTRAMI$`PMH Hypertension`, 0)
+PASTRAMI$"History_of_Myocardial_Infarction"=replace_na(PASTRAMI$`PMH MI`, 0)
+PASTRAMI$"History_of_Diabetes" =replace_na(PASTRAMI$`PMH Diabetes`, 0)
+PASTRAMI$"History_of_Smoking" =replace_na(PASTRAMI$`PMH Smoking`, 0)
+PASTRAMI$"History_of_Epilepsy" = replace_na(PASTRAMI$`PMH Epilepsy`, 0)
+PASTRAMI$"History_of_Stroke" = replace_na(PASTRAMI$`PMH Stroke`, 0)
+PASTRAMI$"History_of_TIA" =replace_na(PASTRAMI$`PMH TIA`, 0)
+PASTRAMI$"History_of_Migraine" = replace_na(PASTRAMI$`PMH Migraine`, 0)
+PASTRAMI$"History_of_Alcohol_Misuse" =replace_na(PASTRAMI$`PMH Alcohol misuse`, 0)
+
+#Comorbid/acute:
+PASTRAMI$"History_or_Presence_of_Atrial_Fibrillation" =replace_na(PASTRAMI$`Hx or presence AF`, 0)
+
+#Acutely collected clinical info:
+PASTRAMI$"Current_Alcohol_or_Drug_use" =replace_na(PASTRAMI$`Alcohol/Drug use reported`, 0)
+
+#Physiological Observations
+PASTRAMI$"Capillary_Blood_Glucose_mmol_L"=PASTRAMI$BM
+#PASTRAMI$"GlasgowComa Scale (/15)"=as.integer(PASTRAMI$`Glasgow Coma Scale`)
+PASTRAMI$"Glasgow_Coma_Scale_max_15"=PASTRAMI$`Glasgow Coma Scale`
+PASTRAMI$"Pain_Score_max_10"=replace_na(PASTRAMI$"Pain: Numeric", 0)
+PASTRAMI$"Systolic_Blood_Pressure_mmHg"=PASTRAMI$`Systolic Blood Pressure`
+PASTRAMI$"Diastolic_Blood_Pressure_mmHg"=PASTRAMI$'Diastolic Blood Pressure'
+PASTRAMI$"Temperature_Degrees_C"=PASTRAMI$Temperature
+PASTRAMI$"Irregular_Pulse"=as.numeric(revalue(PASTRAMI$'Pulse (Reg/IR)', c('Irregular'='1', 'Regular' = '0'))) 
+PASTRAMI$"Heart_Rate_BPM"=PASTRAMI$`Heart Rate (BPM)`
+PASTRAMI$"Peripheral_Oxygen_Saturation_Percent"=PASTRAMI$`Peripheral Oxygen Saturation (%)`
+PASTRAMI$"Respiratory_Rate_BPM"=PASTRAMI$`Respiratory Rate (BPM)`
+
+#Symptoms:
+
+#FAST:
+PASTRAMI$"Facial_Droop_or_Weakness" =replace_na(PASTRAMI$`Facial droop or weakness`, 0)
+PASTRAMI$"Arm_Weakness" =replace_na(PASTRAMI$`Arm weakness`, 0)
+PASTRAMI$"Speech_Disturbance" =replace_na(PASTRAMI$`Speech symptoms`, 0)
+PASTRAMI$"Number_of_FAST_Symptoms"= PASTRAMI$`FAS Symptoms no`
+PASTRAMI$"Number_of_FAST_Symptoms_Including_Free_Text"= PASTRAMI$'Any FAS'
+PASTRAMI$"FAST_Positive" =PASTRAMI$'FAST Positive Symptoms'
+
+#Other symptoms 
+PASTRAMI$"Symptom_of_Dizziness" =replace_na(PASTRAMI$`S Dizziness`, 0)
+PASTRAMI$"Symptom_of_General_Weakness" =replace_na(PASTRAMI$`S Gen Weakness`, 0)
+PASTRAMI$"Nausea_or_Vomiting" =replace_na(PASTRAMI$`Nausea and vomiting`, 0)
+PASTRAMI$"Symptom_of_Syncope" =replace_na(PASTRAMI$`S Syncope`, 0)
+PASTRAMI$"Chest_Pain" =replace_na(PASTRAMI$`Chest pain`, 0)
+PASTRAMI$"Abnormal_Gait" = replace_na(PASTRAMI$`Abnormal Gait`, 0)
+PASTRAMI$"Confusion" = replace_na(PASTRAMI$`Confusion`, 0)
+PASTRAMI$"Headache" = replace_na(PASTRAMI$`Headache`, 0)
+PASTRAMI$"Leg_Weakness" =replace_na(PASTRAMI$`Leg weakness`, 0)
+PASTRAMI$"Neck_Stiffness" =replace_na(PASTRAMI$`Neck Stiffness`, 0)
+PASTRAMI$"Seizures" =replace_na(PASTRAMI$`Seizures`, 0)
+PASTRAMI$"Tremors" = replace_na(PASTRAMI$`Tremors`, 0)
+PASTRAMI$"Unconsciousness" =replace_na(PASTRAMI$`Unconsciousness`, 0)
+PASTRAMI$"Eye_Abnormalities" =replace_na(PASTRAMI$`FT Eye issues`, 0)
+PASTRAMI$"Visual_Disturbance" =replace_na(PASTRAMI$`Visual disturbances`, 0)
+PASTRAMI$"Altered_Sensation" =replace_na(PASTRAMI$`FT Altered Sensation`, 0)
+
+
+#Diagnosis:
+PASTRAMI$Diagnosis= (as.numeric(mapvalues(PASTRAMI$DX, c(2), c(0))))
+
+#*********************End of variable transformation********************************************************
+```
+
+#####Subset chosen predictors including missing data#####
+```{r}
+
+PASTRAMI_CC_Diagnosis=PASTRAMI%>%
+  select("Age_in_Years",Gender,"History_of_Angina", "History_of_Congestive_Heart_Failure", 
+         "History_of_Myocardial_Infarction", "History_of_Hypertension", 
+         "History_or_Presence_of_Atrial_Fibrillation","History_of_Hypercholesterolaemia", 
+         "History_of_Diabetes","History_of_Epilepsy","History_of_Migraine","History_of_TIA",
+         "History_of_Stroke","History_of_Alcohol_Misuse","History_of_Smoking",
+         "Capillary_Blood_Glucose_mmol_L","Diastolic_Blood_Pressure_mmHg",
+         "Systolic_Blood_Pressure_mmHg","Irregular_Pulse","Heart_Rate_BPM", "Temperature_Degrees_C",
+         "Glasgow_Coma_Scale_max_15","Peripheral_Oxygen_Saturation_Percent", "Respiratory_Rate_BPM",
+         "Pain_Score_max_10","Visual_Disturbance","Eye_Abnormalities","Altered_Sensation",
+         "Confusion","Headache","Symptom_of_Dizziness","Symptom_of_Syncope", 
+         "Unconsciousness","Nausea_or_Vomiting","Tremors","Seizures",
+         "Symptom_of_General_Weakness","Abnormal_Gait","Neck_Stiffness",
+         "Chest_Pain","Current_Alcohol_or_Drug_use","Speech_Disturbance","Arm_Weakness",
+         "Facial_Droop_or_Weakness", Diagnosis)
+
+
+```
+
+##### Complete cases subset of predictors with target variable######
+```{r}
+
+Diagnosis_CC=PASTRAMI_CC_Diagnosis[complete.cases(PASTRAMI_CC_Diagnosis),]
+
+```
+
+##### Factorise diagnosis for classification #####
+```{r}
+
+Diagnosis_CC$Diagnosis=as.factor(mapvalues(Diagnosis_CC$Diagnosis, c(0, 1), c("Mimic", "Stroke")))
+
+```
+
+##### Check class ratio #####
+```{r}
+
+Stroke_count=sum(Diagnosis_CC$Diagnosis=="Stroke")
+Stroke_prop=Stroke_count/nrow(Diagnosis_CC)*100
+Mimic_count=sum(Diagnosis_CC$Diagnosis=="Mimic")
+Mimic_prop=Mimic_count/nrow(Diagnosis_CC)*100
+Total_cases=nrow(Diagnosis_CC)
+
+sprintf("%d/%d (%.2f%%) of cases were Stroke, %d/%d (%.2f%%) were Stroke Mimic", Stroke_count, 
+        Total_cases, Stroke_prop, Mimic_count, Total_cases, Mimic_prop)
+
+```
+ 
+#####Create initial testing and training split########
+```{r}
+
+set.seed(73) #reproducible split
+DX_split=initial_split(Diagnosis_CC, strata=Diagnosis) # stratify keep class ratio within each split
+DX_Train=training(DX_split)    # 3447/4598 (75%)
+DX_Test=testing(DX_split)     #1151/4598 (25%)
+
+```
+
+##### Check class ratio maintained within each split #####
+```{r}
+
+#Training Set 
+Stroke_count_Tr=sum(DX_Train$Diagnosis=="Stroke")
+Stroke_prop_Tr=Stroke_count_Tr/nrow(DX_Train)*100
+Mimic_count_Tr=sum(DX_Train$Diagnosis=="Mimic")
+Mimic_prop_Tr=Mimic_count_Tr/nrow(DX_Train)*100
+Total_cases_Tr=nrow(DX_Train)
+
+sprintf("For the Training set, %d/%d (%.2f%%) of cases were Stroke, %d/%d (%.2f%%) were Stroke Mimic", Stroke_count_Tr, 
+        Total_cases_Tr, Stroke_prop_Tr, Mimic_count_Tr, Total_cases_Tr, Mimic_prop_Tr)
+
+#Testing Set 
+Stroke_count_Te=sum(DX_Test$Diagnosis=="Stroke")
+Stroke_prop_Te=Stroke_count_Te/nrow(DX_Test)*100
+Mimic_count_Te=sum(DX_Test$Diagnosis=="Mimic")
+Mimic_prop_Te=Mimic_count_Te/nrow(DX_Test)*100
+Total_cases_Te=nrow(DX_Test)
+
+sprintf("For the Testing set, %d/%d (%.2f%%) of cases were Stroke, %d/%d (%.2f%%) were Stroke Mimic", Stroke_count_Te, 
+        Total_cases_Te, Stroke_prop_Te, Mimic_count_Te, Total_cases_Te, Mimic_prop_Te)
+
+```
+
+#####Descriptives comparing testing and training sets#####
+```{r}
+
+DX_Trainlbl=data.frame(DX_Train)
+DX_Trainlbl$Label="Train"
+
+DX_Testlbl=data.frame(DX_Test)
+DX_Testlbl$Label="Test"
+
+DX_splitLab=bind_rows(DX_Trainlbl, DX_Testlbl)
+DX_splitLab$Gender=mapvalues(DX_splitLab$Gender, c(1, 2), c("Male", "Female"))
+
+DX_splitLab=DX_splitLab%>%
+select_all(~gsub("_", " ",.))
+
+DX_splitTbl=DX_splitLab%>%
+  mutate(Label=fct_rev(Label))%>%
+tbl_summary(by=Label,
+              missing_text="Missing",
+    type=list('Glasgow Coma Scale max 15'~ 'continuous',
+              all_continuous() ~ "continuous2"),
+    statistic=list(
+      all_continuous()~c(
+        "{min}-{max}",
+        "{mean} ({sd})",
+        "{median} ({p25}, {p75})"
+      ),
+      all_categorical() ~ c(
+        "{n} / {N} ({p}%)"
+      ),
+      'Glasgow Coma Scale max 15'~ c(
+        "{median} ({p25}, {p75})"
+      ),
+      'Pain Score max 10'~c(
+        "{median} ({p25}, {p75})"
+      )
+    ),
+    digits=all_continuous() ~2,
+  )%>% 
+  add_stat_label(
+    label=list(all_continuous()~ c(
+      "Min-Max",
+      "Mean (SD)", 
+      "Median (IQR)"),
+      all_categorical()~ c(
+        "N (%)"),
+      'Glasgow Coma Scale max 15' ~ c(
+        "Median (IQR)"),
+      'Pain Score max 10' ~ c(
+        "Median (IQR)"))
+  )%>%
+  add_p()%>%
+modify_caption("**Table 1. Descriptive statistics with univariate tests for the Training versus Testing set.**")%>%
+  bold_labels()
+DX_splitTbl
+
+```
+
+##### Perform stratified k-fold cross validation on training set #####
+```{r}
+#10 fold cross validation
+
+set.seed(73) # keep same splits if rerun
+Kfold_CC_samples=vfold_cv(DX_Train, v=10, strata=Diagnosis) #stratify to keep class ratio within each fold
+
+```
+
+##### View folds #####
+```{r}
+#view first folds:
+lapply(Kfold_CC_samples, head)
+#view all folds:
+Kfold_CC_samples$folds
+#View evaluation results:
+Kfold_CC_samples
+
+####see training v testing set within each fold####
+Kfold_CC_1 = get_rsplit(Kfold_CC_samples, index = 1) 
+split_tib1=tidy(Kfold_CC_1)
+
+Kfold_CC_2 = get_rsplit(Kfold_CC_samples, index = 2) 
+split_tib2=tidy(Kfold_CC_2)
+
+Kfold_CC_3 = get_rsplit(Kfold_CC_samples, index = 3) 
+split_tib3=tidy(Kfold_CC_3)
+
+Kfold_CC_4 = get_rsplit(Kfold_CC_samples, index = 4) 
+split_tib4=tidy(Kfold_CC_4)
+
+Kfold_CC_5 = get_rsplit(Kfold_CC_samples, index = 5) 
+split_tib5=tidy(Kfold_CC_5)
+
+Kfold_CC_6 = get_rsplit(Kfold_CC_samples, index = 6) 
+split_tib6=tidy(Kfold_CC_6)
+
+Kfold_CC_7 = get_rsplit(Kfold_CC_samples, index = 7) 
+split_tib7=tidy(Kfold_CC_7)
+
+Kfold_CC_8 = get_rsplit(Kfold_CC_samples, index = 8) 
+split_tib8=tidy(Kfold_CC_8)
+
+Kfold_CC_9 = get_rsplit(Kfold_CC_samples, index = 9) 
+split_tib9=tidy(Kfold_CC_9)
+
+Kfold_CC_10 = get_rsplit(Kfold_CC_samples, index = 10) 
+split_tib10=tidy(Kfold_CC_10)
+
+#Identifies the assessment set/actual fold data rather than whole split
+
+KF_CC_1=as.data.frame(complement(Kfold_CC_1))
+KF_CC_1=mutate(KF_CC_1, Fold="Fold 1")
+colnames(KF_CC_1)[1]="N"
+
+KF_CC_2=as.data.frame(complement(Kfold_CC_2))
+KF_CC_2=mutate(KF_CC_2, Fold="Fold 2")
+colnames(KF_CC_2)[1]="N"
+
+KF_CC_3=as.data.frame(complement(Kfold_CC_3))
+KF_CC_3=mutate(KF_CC_3, Fold="Fold 3")
+colnames(KF_CC_3)[1]="N"
+
+KF_CC_4=as.data.frame(complement(Kfold_CC_4))
+KF_CC_4=mutate(KF_CC_4, Fold="Fold 4")
+colnames(KF_CC_4)[1]="N"
+
+KF_CC_5=as.data.frame(complement(Kfold_CC_5))
+KF_CC_5=mutate(KF_CC_5, Fold="Fold 5")
+colnames(KF_CC_5)[1]="N"
+
+KF_CC_6=as.data.frame(complement(Kfold_CC_6))
+KF_CC_6=mutate(KF_CC_6, Fold="Fold 6")
+colnames(KF_CC_6)[1]="N"
+
+KF_CC_7=as.data.frame(complement(Kfold_CC_7))
+KF_CC_7=mutate(KF_CC_7, Fold="Fold 7")
+colnames(KF_CC_7)[1]="N"
+
+KF_CC_8=as.data.frame(complement(Kfold_CC_8))
+KF_CC_8=mutate(KF_CC_8, Fold="Fold 8")
+colnames(KF_CC_8)[1]="N"
+
+KF_CC_9=as.data.frame(complement(Kfold_CC_9))
+KF_CC_9=mutate(KF_CC_9, Fold="Fold 9")
+colnames(KF_CC_9)[1]="N"
+
+KF_CC_10=as.data.frame(complement(Kfold_CC_10))
+KF_CC_10=mutate(KF_CC_10, Fold="Fold 10")
+colnames(KF_CC_10)[1]="N"
+
+
+K_Folds=bind_rows(KF_CC_1, KF_CC_2, KF_CC_3, KF_CC_4, KF_CC_5, KF_CC_6, KF_CC_7, KF_CC_8, KF_CC_9, KF_CC_10)
+
+#Create a row number column in the dataframe with diagnosis label to use to match with the fold row number to enable merge 
+DX_Tr_N=DX_Train%>%
+  mutate(N=row_number())
+
+#merge the new merged fold dataframe with the class label dataframe 
+merger=merge(DX_Tr_N,K_Folds, by="N", all.x=TRUE)
+
+
+#Tabulate the class ratio for each fold - 62% stroke matches dataset class ratio
+fold_ratio=merger%>%
+  select("Fold", Diagnosis)%>%
+tbl_summary(by="Fold",
+              statistic = list(
+                all_categorical() ~ c("{n} / {N} ({p}%)")
+              ))
+fold_ratio
+
+```
+
+#### View proportion of stroke patients in each training split of the folds #####
+```{r}
+
+split_props=map_dbl(Kfold_CC_samples$splits,
+        function(x){
+          k_class=as.data.frame(x)$Diagnosis
+          mean(k_class=="Stroke")
+        })
+split_props
+```
+
+##### Create Model Specification #####
+```{r}
+
+Model_1_CCC_spec = boost_tree(
+  trees = 1000,    #same as nrounds
+  stop_iter = tune(),  #early stopping if no improvement in classification error for N iterations - parsnip version of XGB early_stop 
+  tree_depth = tune(),  #how deep each tree can grow (number of splits) - same as max_depth - pruning process
+  min_n = tune(),  #min N data points for new node - same as min child weight - pruning process
+  loss_reduction = tune(), #regularisation- min loss reduction required to make another node - parsnip version of gamma   
+  sample_size = tune(), # number of observations subsampled randomly for each tree - same as subsample
+  mtry = tune(),    # number of covariates to randomly choose from for each split
+  learn_rate = tune(), # step size between updating weights - parsnip version of ETA 
+  ) %>%
+  set_engine("xgboost", validation=0.2, validation_set=Kfold_CC_samples) %>%
+  set_mode("classification") 
+Model_1_CCC_spec
+
+```
+
+##### Latin Hypercube search for optimal hyperparameters #####
+```{r}
+
+# Create 50 combinations of these parameters
+#didnt weight this dataset because sufficiently balanced (62%) 
+#note: grid_latin_hypercube will be deprecated and replaced with grid_space_filling (gives different results even with seed set)
+
+mtry_max= ncol(Diagnosis_CC)-1 
+
+set.seed(73)
+xgb_grid_CCC = grid_latin_hypercube(
+  stop_iter(),
+  tree_depth(),
+  min_n(),
+  loss_reduction(),
+  sample_size = sample_prop(),
+  mtry(range = c(1, mtry_max)),
+  learn_rate(),
+  size = 50)
+  
+```
+
+##### Model Workflow (with model formula) ######
+```{r}
+
+    xgb_wf_CCC = workflow() %>%
+    add_formula(Diagnosis ~ .) %>%
+    add_model(Model_1_CCC_spec)
+
+```
+
+##### Tune model hyperparameters to find the best LH combinations #####
+```{r}
+
+set.seed(73) # reproducible 
+xgb_tg_CCC = tune_grid(
+    xgb_wf_CCC,
+    resamples = Kfold_CC_samples,
+    grid = xgb_grid_CCC,
+    control = control_grid(save_pred = TRUE,
+                           verbose = TRUE)
+  )
+
+```
+
+##### Inspect parameter combinations with respect to evaluation statistics #####
+```{r}
+
+Best_auc_params=show_best(xgb_tg_CCC, metric = "roc_auc")  
+Best_auc_params
+
+Best_auc=show_best(xgb_tg_CCC, metric = "roc_auc") %>%
+  select(mean, .config)
+Best_auc
+
+Best_acc_params=show_best(xgb_tg_CCC, metric = "accuracy")
+Best_acc_params
+
+Best_acc=show_best(xgb_tg_CCC, metric = "accuracy") %>%
+  select(mean, .config)
+Best_acc
+
+```
+
+##### Visualise parameter and model effects on AUC #####
+```{r}
+
+#all hyperparameter metrics for all models
+
+xgb_tg_mets_CCC=xgb_tg_CCC %>%
+  collect_metrics()
+xgb_tg_mets_CCC
+
+xgb_tg_preds_CCC=xgb_tg_CCC %>%
+  collect_predictions()
+xgb_tg_preds_CCC
+
+
+XGB_TG_AUCS_CCC=xgb_tg_mets_CCC%>%
+  filter(.metric=="roc_auc")%>%
+  arrange(desc(mean))
+XGB_TG_AUCS_CCC
+
+autoplot(xgb_tg_CCC$loss_reduction, metric="roc_auc", by=loss_reduction)   #by loss reduction 
+
+#loss reduction 
+xgb_tg_LR_CCC=xgb_tg_CCC %>%
+  collect_metrics() %>%
+  filter(.metric == "roc_auc") %>%
+  select(mean, loss_reduction, .config) %>%
+  pivot_longer(loss_reduction,
+               values_to = "value",
+               names_to = "parameter"
+  ) %>%
+  ggplot(aes(value,
+             mean,
+             color = .config)) +
+  geom_point() +
+  facet_wrap(~parameter)
+xgb_tg_LR_CCC
+
+#AUC in terms of all parameters 
+
+  xgb_tg_auc_CCC=xgb_tg_CCC %>%
+  collect_metrics() %>%
+  filter(.metric == "roc_auc") %>%
+  select(mean, mtry:sample_size, .config) %>%
+  pivot_longer(mtry:sample_size,
+               values_to = "value",
+               names_to = "parameter"
+  ) %>%
+  ggplot(aes(value,
+             mean,
+             color = .config)) +
+  geom_point() +
+  facet_wrap(~parameter, scales="free_x")
+  xgb_tg_auc_CCC
+  
+  ggsave(xgb_tg_auc_CCC) 
+
+  
+  #Accuracy
+xgb_tg_acc_CCC=xgb_tg_CCC %>%
+  collect_metrics() %>%
+  filter(.metric == "accuracy") %>%
+  select(mean, mtry:sample_size, .config) %>%
+  pivot_longer(mtry:sample_size,
+               values_to = "value",
+               names_to = "parameter"
+  ) %>%
+  ggplot(aes(value,
+             mean,
+             color = .config)) +
+  geom_point() +
+  facet_wrap(~parameter)
+xgb_tg_acc_CCC
+
+```
+
+##### Plot the tuning process in terms of tree depth (can do others) #####
+```{r}
+
+#loss reduction
+LR_tune_plot_CCC = xgb_tg_CCC  %>%
+  collect_metrics() %>% #Collect metrics from tuning
+  mutate(tree_depth = factor(tree_depth)) %>%
+  ggplot(aes(loss_reduction, mean, color = tree_depth)) +
+  geom_line(linewidth = 1, alpha = 0.7) +
+  geom_point(size = 1.5) +
+  facet_wrap(~ .metric, scales = "free", nrow = 2) +
+  scale_x_log10(labels = scales::label_number()) +
+  scale_color_viridis_d(option = "plasma", begin = .9, end = 0) + 
+  theme_minimal()
+print(LR_tune_plot_CCC)
+
+#Min_N
+Min_N_tune_plot_CCC = xgb_tg_CCC  %>%
+  collect_metrics() %>% #Collect metrics from tuning
+  mutate(tree_depth = factor(tree_depth)) %>%
+  ggplot(aes(min_n, mean, color = tree_depth)) +
+  geom_line(linewidth = 1, alpha = 0.7) +
+  geom_point(size = 1.5) +
+  facet_wrap(~ .metric, scales = "free", nrow = 2) +
+  scale_x_log10(labels = scales::label_number()) +
+  scale_color_viridis_d(option = "plasma", begin = .9, end = 0) + 
+  theme_minimal()
+print(Min_N_tune_plot_CCC)
+
+#Sample Size
+SampleSz_tune_plot_CCC = xgb_tg_CCC  %>%
+  collect_metrics() %>% #Collect metrics from tuning
+  mutate(tree_depth = factor(tree_depth)) %>%
+  ggplot(aes(sample_size, mean, color = tree_depth)) +
+  geom_line(linewidth = 1, alpha = 0.7) +
+  geom_point(size = 1.5) +
+  facet_wrap(~ .metric, scales = "free", nrow = 2) +
+  scale_x_log10(labels = scales::label_number()) +
+  scale_color_viridis_d(option = "plasma", begin = .9, end = 0) + 
+  theme_minimal()
+print(SampleSz_tune_plot_CCC)
+
+#mtry
+mtry_tune_plot_CCC = xgb_tg_CCC  %>%
+  collect_metrics() %>% #Collect metrics from tuning
+  mutate(tree_depth = factor(tree_depth)) %>%
+  ggplot(aes(mtry, mean, color = tree_depth)) +
+  geom_line(linewidth = 1, alpha = 0.7) +
+  geom_point(size = 1.5) +
+  facet_wrap(~ .metric, scales = "free", nrow = 2) +
+  scale_x_log10(labels = scales::label_number()) +
+  scale_color_viridis_d(option = "plasma", begin = .9, end = 0) + 
+  theme_minimal()
+print(mtry_tune_plot_CCC)
+
+#learn rate
+learn_rate_tune_plot_CCC = xgb_tg_CCC  %>%
+  collect_metrics() %>% #Collect metrics from tuning
+  mutate(tree_depth = factor(tree_depth)) %>%
+  ggplot(aes(learn_rate, mean, color = tree_depth)) +
+  geom_line(linewidth = 1, alpha = 0.7) +
+  geom_point(size = 1.5) +
+  facet_wrap(~ .metric, scales = "free", nrow = 2) +
+  scale_x_log10(labels = scales::label_number()) +
+  scale_color_viridis_d(option = "plasma", begin = .9, end = 0) + 
+  theme_minimal()
+print(learn_rate_tune_plot_CCC)
+```
+
+##### Select model with best parameters #####
+```{r}
+
+best_auc_CCC = select_best(xgb_tg_CCC, metric="roc_auc")
+best_auc_CCC
+
+
+best_acc_CCC = select_best(xgb_tg_CCC, metric="accuracy")
+best_acc_CCC
+
+```
+
+##### Finalise worklow using optimum parameters based on AUC #####
+```{r}
+
+final_xgb_CCC = finalize_workflow(
+  xgb_wf_CCC,
+  best_auc_CCC
+)
+final_xgb_CCC
+
+```
+
+##### Fit to resamples to see predictions from fitting to and predicting on folds #####
+```{r}
+
+set.seed(73)
+Trained_XGB=fit_resamples(final_xgb_CCC, resamples=Kfold_CC_samples, control=control_grid(save_pred=TRUE))
+#These resampling statistics are an effective method for measuring model performance without predicting the training set directly as a whole.
+#Not needed with initial split/testing set
+
+################Training set metrics for resamples############
+
+Trained_XGB_Mets=Trained_XGB%>%
+  collect_metrics()
+
+###########Training set predictions for resamples############
+Trained_XGB_Preds=Trained_XGB%>%
+  collect_predictions()
+
+TR_Preds_DF=data.frame(Trained_XGB_Preds, Trained_XGB$.predictions)
+
+```
+
+##### Fit model to training data and evaluate on test set #####
+```{r}
+
+metricsES=metric_set(mn_log_loss, roc_auc, accuracy, pr_auc)
+
+set.seed(73)
+last_boost_CCC = last_fit(
+  final_xgb_CCC,
+  DX_split,
+  metrics=metricsES,
+  control=control_last_fit(verbose=TRUE),
+  add_validation_set = TRUE)
+last_boost_CCC
+
+last_boost_metrics_CCC=last_boost_CCC%>%
+    collect_metrics()
+last_boost_metrics_CCC
+
+```
+
+##### Extract fit from workflow to use model for predictions etc downstream #####
+```{r}
+
+XGB_fit=extract_fit_parsnip(last_boost_CCC)
+xgb_model = extract_fit_engine(XGB_fit)
+
+#Can save this trained workflow and use for prediction later
+xgb.save(xgb_model, "XGB_SVM_CC")
+
+```
+
+##### Evaluation log - logloss/error based on number of trees #####
+```{r}
+
+XGB_TR_Eval_CCC=xgb_model$evaluation_log
+
+xgb_model$best_iteration
+xgb_model$best_ntreelimit
+xgb_model$best_score #logloss at best iteration
+xgb_model$best_msg
+
+```
+
+##### Plot evaluation log to visualise early stopping #####
+```{r}
+
+Eval_mets_Tr=melt(
+  xgb_model$evaluation_log,
+  id.vars="iter",
+  variable.name="Set",
+  value.name="Error"
+)
+
+Eval_plot_Tr=ggplot(Eval_mets_Tr, aes(iter, Error, group=Set))+
+  geom_line(aes(color=Set), linewidth=1.5)+
+  scale_color_manual(values="red",labels="Training Sample")+
+  labs(title="Prediction error loss according to number of trees")+
+  xlab("Tree Number")+
+  ylab("Prediction Error")+
+  geom_vline(aes(xintercept=xgb_model$best_iteration), color="black")+
+   scale_y_continuous(limits=c(.59,.7), breaks=c(.55, .6, .65, .7))+
+   scale_x_continuous(limits=c(0, 100), breaks=c(0, 50, 100))+
+  theme_classic() +
+  theme(plot.title=element_text(face="bold", hjust=.5, size=8),
+        legend.position.inside = c(.95, .8),
+        legend.justification = c("right", "top"),
+        legend.title = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor=element_blank(),
+        plot.background = element_blank(),
+        panel.background = element_blank())
+   Eval_plot_Tr
+   
+   ggsave(plot=Eval_plot_Tr, filename="Evaluation Log.png", path="H:/Documents/PhD/1. Retrospective Study (Machine Learning)/Analysis/XGB Results/Complete Cases Analysis/Prediction Error Iterations Plot")
+  
+```
+
+##### Predictions #####
+```{r}
+#Testing set
+
+XGB_preds_CCC=last_boost_CCC%>%
+  collect_predictions()
+
+colnames(XGB_preds_CCC)[2]="Mimic_Prediction"
+colnames(XGB_preds_CCC)[3]="Stroke_Prediction"
+colnames(XGB_preds_CCC)[4]="Row"
+colnames(XGB_preds_CCC)[5]="Predicted_Class"
+
+#Training version - should have the most biased predictions
+
+#Make diagnosis numeric again and map values
+DX_Train_num=DX_Train
+DX_Train_num$Diagnosis=as.numeric(mapvalues(DX_Train_num$Diagnosis, c("Mimic", "Stroke"), c(0, 1)))
+DX_Train_num$Diagnosis=as.numeric(mapvalues(DX_Train_num$Diagnosis, c(2), c(0)))
+
+#remove dx to match model cols for predict fnct 
+DX_Train_num_nodx=DX_Train_num%>%
+  select(-Diagnosis)
+
+#Whole dataset version - should have moderately biased predictions (mix of "seen" and "unseen" data)
+
+#Make diagnosis numeric again and map values
+DX_CC_num=Diagnosis_CC
+DX_CC_num$Diagnosis=as.numeric(mapvalues(DX_CC_num$Diagnosis, c("Mimic", "Stroke"), c(0, 1)))
+DX_CC_num$Diagnosis=as.numeric(mapvalues(DX_CC_num$Diagnosis, c(2), c(0)))
+
+#remove dx to match model cols for predict fnct 
+DX_CC_num_nodx=DX_CC_num%>%
+  select(-Diagnosis)  
+
+####Matrix for predict function######
+
+#training 
+DX_Tr_Mx=as.matrix(DX_Train_num_nodx)
+
+#Whole dataset
+DX_CC_Mx=as.matrix(DX_CC_num_nodx)
+
+#check what the model names are to ensure columns match testing matrix
+xgb_names=as.data.frame(xgb_model$feature_names)
+xgb_names
+
+#training
+Predict_fnctTr=as.data.frame(predict(xgb_model, DX_Tr_Mx))
+
+#whole dataset 
+Predict_fnctCC=as.data.frame(predict(xgb_model, DX_CC_Mx))
+
+#training version
+Predict_fnctTr$Row=row(Predict_fnctTr)
+DX_CCTr_num=data.frame(DX_Train, row(DX_Train)[, 1])
+
+colnames(Predict_fnctTr)[2]="Row"
+colnames(DX_CCTr_num)[46]="Row"
+
+Train_predict=merge(Predict_fnctTr, DX_CCTr_num, by="Row")
+
+colnames(Train_predict)[2]="Mimic_Prediction"
+
+Train_predict$Predicted_Class=ifelse(Train_predict$Mimic_Prediction>.65, "Mimic", "Stroke")
+
+Train_predict$Stroke_Prediction=1-Train_predict$Mimic_Prediction
+
+#whole dataset version
+Predict_fnctCC$Row=row(Predict_fnctCC)
+DX_CC_num=data.frame(Diagnosis_CC, row(Diagnosis_CC)[, 1])
+
+colnames(Predict_fnctCC)[2]="Row"
+colnames(DX_CC_num)[46]="Row"
+
+CC_predict=merge(Predict_fnctCC, DX_CC_num, by="Row")
+
+colnames(CC_predict)[1]="Row"
+colnames(CC_predict)[2]="Mimic_Prediction"
+
+CC_predict$Stroke_Prediction=1-CC_predict$Mimic_Prediction
+
+CC_predict$Predicted_Class=ifelse(CC_predict$Mimic_Prediction>.65, "Mimic", "Stroke")
+
+```
+
+##### ROC curves #####
+```{r}
+
+##### Training set after refitting to training- all thresholds for ROC - default threshold .5 #####
+
+Tr_XGB_ROC_M=Train_predict%>%
+  roc_curve(Diagnosis, Mimic_Prediction)
+Tr_XGB_ROC_M
+
+#ROC for training set predictions - not useful (biased)
+XGB_ROCobj_Tr_M = roc(Train_predict$Diagnosis, Train_predict$Mimic_Prediction, levels=c(control="Stroke", case="Mimic"), direction="<")
+CCC_Tr_Mimic_auc =round(pROC::auc(XGB_ROCobj_Tr_M),3)
+
+##### ROC Curves for testing set  N=1151 #####
+
+#get sens spec and thresholds 
+XGB_ROC_M=XGB_preds_CCC%>%
+  roc_curve(Diagnosis, Mimic_Prediction)
+XGB_ROC_M
+
+#pROC object for ggroc
+XGB_ROCobj_M = roc(XGB_preds_CCC$Diagnosis, XGB_preds_CCC$Mimic_Prediction, levels=c(control="Stroke", case="Mimic"), direction="<")
+CCC_Mimic_auc = round(pROC::auc(XGB_ROCobj_M),3)
+CCC_Stroke_auc = round(pROC::auc(XGB_preds_CCC$Diagnosis,XGB_preds_CCC$Stroke_Prediction, levels=c(control="Stroke", case="Mimic"), direction="<"),4)
+
+#Predict on testing set
+ROC_Curve_M=XGB_ROCobj_M%>%
+  ggroc(color="Red", size=1)+
+  xlab("1-Specificity")+
+  ylab("Sensitivity")+
+  labs(title=sprintf("Mimic Prediction ROC Curve", " ", "AUC= ", CCC_Mimic_auc))+
+  theme(plot.title=element_text(hjust=.5),
+        legend.text=element_blank(),
+        legend.title=element_blank(),
+        legend.position = "none",
+        panel.grid.major = element_blank(),
+        panel.grid.minor=element_blank(),
+        plot.background = element_blank(),
+        panel.background = element_blank())
+ROC_Curve_M
+
+  #Predict on training set 
+ROC_Curve_M=XGB_ROCobj_Tr_M%>%
+  ggroc(color="Red", size=1)+
+  xlab("1-Specificity")+
+  ylab("Sensitivity")+
+  labs(title=sprintf("Mimic Prediction ROC Curve", " ", "AUC= ", CCC_Tr_Mimic_auc))+
+  theme(plot.title=element_text(hjust=.5),
+        legend.text=element_blank(),
+        legend.title=element_blank(),
+        legend.position = "none",
+        panel.grid.major = element_blank(),
+        panel.grid.minor=element_blank(),
+        plot.background = element_blank(),
+        panel.background = element_blank())
+ROC_Curve_M
+
+##### overlaying testing and training ROCS ##### 
+
+TR_Tes_ROC=list("Training ROC" = XGB_ROCobj_Tr_M,
+                "Testing ROC"= XGB_ROCobj_M)
+
+MergedTT_ROCS=ggroc(TR_Tes_ROC, aes="color", size=1, legacy.axes = TRUE)+
+  geom_abline() +
+  theme_classic() +
+  theme(plot.title=element_text(face="bold", hjust=.1, size=10),
+        axis.title.x=element_text(face="bold"),
+        axis.title.y=element_text(face="bold"),
+        legend.title=element_text(face="bold"))+
+  scale_color_manual(values=c("red", "blue"))+
+  ggtitle(paste0("Mimic Prediction ROC Curve:", " ", "Train AUC= ", CCC_Tr_Mimic_auc, ", ","Test AUC= ", CCC_Mimic_auc
+                 )) +
+  labs(x = "1 - Specificity",
+       y = "Sensitivity",
+       color = "ROC Curve Dataset")
+MergedTT_ROCS
+
+ggsave(plot=MergedTT_ROCS, path="H:/Documents/PhD/1. Retrospective Study (Machine Learning)/Analysis/XGB Results/Complete Cases Analysis/ROC Curves",
+       filename="Testing and training ROCs.png", height=6, width=8)
+
+```
+
+##### Diagnostic Accuracy Statistics #####
+```{r}
+
+#Threshold selection
+
+#default 
+def_thresh=factor(ifelse(XGB_preds_CCC$Mimic_Prediction>.5,"Mimic","Stroke"))
+
+#True class variable
+Truth_Class=factor(XGB_preds_CCC$Diagnosis)
+
+#def thresh stats
+Preds_def_thresh=cbind(data.frame(def_thresh, Truth_Class))
+
+CM_Stat_def_t=binary_class_cm(Preds_def_thresh$def_thresh, Preds_def_thresh$Truth_Class)
+CM_Stat_def_t
+
+DAStat_Default=data.frame(CM_Stat_def_t$record_level_cm)  
+
+#### Check diagnostic accuracy at "best" threshold
+
+Best_thresh=pROC::coords(XGB_ROCobj_M, "best", ret="threshold", transpose=FALSE)
+Best_thresh
+
+##### Alter threshold #####
+
+#Calculate predictions at various thresholds
+Zero_FPR_XEX = factor(ifelse(XGB_preds_CCC$Mimic_Prediction<0.9,"Stroke", "Mimic"))
+Zero_FPR_XEX
+
+Min_FPR_XEX = factor(ifelse(XGB_preds_CCC$Mimic_Prediction<0.8,"Stroke", "Mimic"))
+Min_FPR_XEX
+
+Min_FPR_EX = factor(ifelse(XGB_preds_CCC$Mimic_Prediction<0.7,"Stroke", "Mimic"))
+Min_FPR_EX
+
+Min_FPR_TX = factor(ifelse(XGB_preds_CCC$Mimic_Prediction<0.6,"Stroke", "Mimic"))
+Min_FPR_TX
+
+Min_FPR_TF = factor(ifelse(XGB_preds_CCC$Mimic_Prediction<0.5,"Stroke", "Mimic"))
+Min_FPR_TF
+
+Min_FPR_maxx = factor(ifelse(XGB_preds_CCC$Mimic_Prediction<0.4,"Stroke", "Mimic"))
+Min_FPR_maxx
+
+Min_FPR_max = factor(ifelse(XGB_preds_CCC$Mimic_Prediction<0.3,"Stroke", "Mimic"))
+Min_FPR_max
+
+Min_FPR_mid = factor(ifelse(XGB_preds_CCC$Mimic_Prediction<0.2,"Stroke", "Mimic"))
+Min_FPR_mid
+
+Min_FPR_min = factor(ifelse(XGB_preds_CCC$Mimic_Prediction<0.1,"Stroke", "Mimic"))
+Min_FPR_min
+
+Youden_Thresh = factor(ifelse(XGB_preds_CCC$Mimic_Prediction>Best_thresh[1,1], "Mimic", "Stroke"))
+Youden_Thresh
+
+#####Diagnostic Accuracy Statistics for altered threshold ######
+
+##.9
+
+Preds_FPR_Zero=cbind(data.frame(Zero_FPR_XEX, Truth_Class))
+
+FPR_CM_Stat_Zero=binary_class_cm(Preds_FPR_Zero$Zero_FPR_XEX, Preds_FPR_Zero$Truth_Class)
+FPR_CM_Stat_Zero
+
+FPR_CM_DAStat_Zero=data.frame(FPR_CM_Stat_Zero$record_level_cm)
+
+##.8
+
+Preds_FPR_XEX=cbind(data.frame(Min_FPR_XEX, Truth_Class))
+
+FPR_CM_Stat_XEX=binary_class_cm(Preds_FPR_XEX$Min_FPR_XEX, Preds_FPR_XEX$Truth_Class)
+FPR_CM_Stat_XEX
+
+FPR_CM_DAStat_XEX=data.frame(FPR_CM_Stat_XEX$record_level_cm)
+
+##.7
+
+Preds_FPR_EX=cbind(data.frame(Min_FPR_EX, Truth_Class))
+
+FPR_CM_Stat_EX=binary_class_cm(Preds_FPR_EX$Min_FPR_EX, Preds_FPR_EX$Truth_Class)
+FPR_CM_Stat_EX
+
+FPR_CM_DAStat_EX=data.frame(FPR_CM_Stat_EX$record_level_cm)
+
+##.6
+
+Preds_FPR_TX=cbind(data.frame(Min_FPR_TX, Truth_Class))
+
+FPR_CM_Stat_TX=binary_class_cm(Preds_FPR_TX$Min_FPR_TX, Preds_FPR_TX$Truth_Class)
+FPR_CM_Stat_TX
+
+FPR_CM_DAStat_TX=data.frame(FPR_CM_Stat_TX$record_level_cm)
+
+##.5
+
+Preds_FPR_TF=cbind(data.frame(Min_FPR_TF, Truth_Class))
+
+FPR_CM_Stat_TF=binary_class_cm(Preds_FPR_TF$Min_FPR_TF, Preds_FPR_TF$Truth_Class)
+FPR_CM_Stat_TF
+
+FPR_CM_DAStat_TF=data.frame(FPR_CM_Stat_TF$record_level_cm)
+
+##.4
+
+Preds_FPR_maxx=cbind(data.frame(Min_FPR_maxx, Truth_Class))
+  
+FPR_CM_Stat_maxx=binary_class_cm(Preds_FPR_maxx$Min_FPR_maxx, Preds_FPR_maxx$Truth_Class)
+FPR_CM_Stat_maxx
+  
+FPR_CM_DAStat_maxx=data.frame(FPR_CM_Stat_maxx$record_level_cm)
+  
+##.3
+
+Preds_FPR_max=cbind(data.frame(Min_FPR_max, Truth_Class))
+  
+FPR_CM_Stat_max=binary_class_cm(Preds_FPR_max$Min_FPR_max, Preds_FPR_max$Truth_Class)
+FPR_CM_Stat_max
+  
+FPR_CM_DAStat_max=data.frame(FPR_CM_Stat_max$record_level_cm)
+  
+##.2
+  
+Preds_FPR_mid=cbind(data.frame(Min_FPR_mid, Truth_Class))
+  
+FPR_CM_Stat_mid=binary_class_cm(Preds_FPR_mid$Min_FPR_mid, Preds_FPR_mid$Truth_Class)
+FPR_CM_Stat_mid
+  
+FPR_CM_DAStat_mid=data.frame(FPR_CM_Stat_mid$record_level_cm)
+  
+##.1
+  
+Preds_FPR_min=cbind(data.frame(Min_FPR_min, Truth_Class))
+  
+FPR_CM_Stat_min=binary_class_cm(Preds_FPR_min$Min_FPR_min, Preds_FPR_min$Truth_Class)
+FPR_CM_Stat_min
+  
+FPR_CM_DAStat_min=data.frame(FPR_CM_Stat_min$record_level_cm)
+  
+##youden
+  
+Preds_Youden=cbind(data.frame(Youden_Thresh, Truth_Class))
+  
+FPR_CM_Stat_Youd=binary_class_cm(Preds_Youden$Youden_Thresh, Preds_Youden$Truth_Class)
+FPR_CM_Stat_Youd
+  
+FPR_CM_DAStat_Youd=data.frame(FPR_CM_Stat_Youd$record_level_cm)
+
+  
+```
+  
+##### Diagnostic Accuracy Statistics Tables #####
+```{r}
+AUC=data.frame(last_boost_metrics_CCC$.estimate[2])
+
+OG_names=c("threshold", "tn", "tp", "fn", "fp", "sensitivity",
+            "specificity", "accuracy", "tpr", "tnr", "fnr", "fpr",
+           "npv", "ppv", "youden", "closest.topleft", "Kappa", "AccuracyLower", "AccuracyUpper", "AccuracyNull",
+           "AccuracyPValue", "McnemarPValue", "Precision","Recall", "F1", "Prevalence", "Detection.Rate", 
+           "Detection.Prevalence", "Balanced.Accuracy")
+New_names=c("Threshold", "True Negative", "True Positive", "False Negative", 
+            "False Positive", "Sensitivity", "Specificity", "Accuracy", "True Positive Rate",
+            "True Negative Rate", "False Negative Rate", "False Positive Rate", "Negative Predictive Value",
+            "Positive Predictive Value", "Youden's Index", "Closest Top Left", "Cohen's Kappa", 
+            "Accuracy Lower 95%CI", "Accuracy Upper 95%CI", "Null Accuracy", "Accuracy vs NIR p-value", "McNemar's p-value", "Precision",
+           "Recall", "F1-score", "Prevalence", "Detection Rate", "Detection Prevalence", "Balanced Accuracy")
+
+######Table of Diagnostic Accuracy Statistics##########
+
+#Youden
+XGB_DA_Stats=pROC::coords(XGB_ROCobj_M, "best", ret="all")
+
+XGB_Stats_Youden=pROC::coords(XGB_ROCobj_M, Best_thresh[1,1], ret=c("threshold", "tn", "tp", "fn", "fp", "sensitivity",
+                                                        "specificity", "accuracy", "tpr", "tnr", "fnr", "fpr",
+                                                        "npv", "ppv", "youden", "closest.topleft"))
+XGB_DA_Stats_Youd=bind_cols(CCC_Mimic_auc, XGB_Stats_Youden)
+colnames(XGB_DA_Stats_Youd)[1]="AUC"
+
+##.5 threshold
+XGB_Stats_def=pROC::coords(XGB_ROCobj_M, 0.5, ret=c("threshold", "tn", "tp", "fn", "fp", "sensitivity",
+                                                         "specificity", "accuracy", "tpr", "tnr", "fnr", "fpr",
+                                                         "npv", "ppv", "youden", "closest.topleft"))
+XGB_DA_Stats_def=bind_cols(CCC_Mimic_auc, XGB_Stats_def)
+colnames(XGB_DA_Stats_def)[1]="AUC"
+
+
+##.9 threshold 
+XGB_Stats_FPR_Zero=pROC::coords(XGB_ROCobj_M, 0.9, ret=c("threshold", "tn", "tp", "fn", "fp", "sensitivity",
+                                                       "specificity", "accuracy", "tpr", "tnr", "fnr", "fpr",
+                                                       "npv", "ppv", "youden", "closest.topleft"))
+XGB_DA_Stats_FPR_Zero=bind_cols(CCC_Mimic_auc, XGB_Stats_FPR_Zero)
+colnames(XGB_DA_Stats_FPR_Zero)[1]="AUC"
+
+##.8 threshold 
+XGB_Stats_FPR_XEX=pROC::coords(XGB_ROCobj_M, 0.8, ret=c("threshold", "tn", "tp", "fn", "fp", "sensitivity",
+                                                         "specificity", "accuracy", "tpr", "tnr", "fnr", "fpr",
+                                                         "npv", "ppv", "youden", "closest.topleft"))
+XGB_DA_Stats_FPR_XEX=bind_cols(CCC_Mimic_auc, XGB_Stats_FPR_XEX)
+colnames(XGB_DA_Stats_FPR_XEX)[1]="AUC"
+
+
+##.7 threshold 
+XGB_Stats_FPR_EX=pROC::coords(XGB_ROCobj_M, 0.7, ret=c("threshold", "tn", "tp", "fn", "fp", "sensitivity",
+                                                          "specificity", "accuracy", "tpr", "tnr", "fnr", "fpr",
+                                                          "npv", "ppv", "youden", "closest.topleft"))
+XGB_DA_Stats_FPR_EX=bind_cols(CCC_Mimic_auc, XGB_Stats_FPR_EX)
+colnames(XGB_DA_Stats_FPR_EX)[1]="AUC"
+
+##.6 threshold 
+XGB_Stats_FPR_TX=pROC::coords(XGB_ROCobj_M, 0.6, ret=c("threshold", "tn", "tp", "fn", "fp", "sensitivity",
+                                                       "specificity", "accuracy", "tpr", "tnr", "fnr", "fpr",
+                                                       "npv", "ppv", "youden", "closest.topleft"))
+XGB_DA_Stats_FPR_TX=bind_cols(CCC_Mimic_auc, XGB_Stats_FPR_TX)
+colnames(XGB_DA_Stats_FPR_TX)[1]="AUC"
+
+##.5 threshold 
+XGB_Stats_FPR_TF=pROC::coords(XGB_ROCobj_M, 0.5, ret=c("threshold", "tn", "tp", "fn", "fp", "sensitivity",
+                                                         "specificity", "accuracy", "tpr", "tnr", "fnr", "fpr",
+                                                         "npv", "ppv", "youden", "closest.topleft"))
+XGB_DA_Stats_FPR_TF=bind_cols(CCC_Mimic_auc, XGB_Stats_FPR_TF)
+colnames(XGB_DA_Stats_FPR_TF)[1]="AUC"
+
+##.4 threshold 
+XGB_Stats_FPR_maxx=pROC::coords(XGB_ROCobj_M, 0.4, ret=c("threshold", "tn", "tp", "fn", "fp", "sensitivity",
+                                                            "specificity", "accuracy", "tpr", "tnr", "fnr", "fpr",
+                                                            "npv", "ppv", "youden", "closest.topleft"))
+XGB_DA_Stats_min_FPRX=bind_cols(CCC_Mimic_auc, XGB_Stats_FPR_maxx)
+colnames(XGB_DA_Stats_min_FPRX)[1]="AUC"
+
+
+##.3 threshold 
+XGB_Stats_FPR_max=pROC::coords(XGB_ROCobj_M, 0.3, ret=c("threshold", "tn", "tp", "fn", "fp", "sensitivity",
+                                                            "specificity", "accuracy", "tpr", "tnr", "fnr", "fpr",
+                                                            "npv", "ppv", "youden", "closest.topleft"))
+XGB_DA_Stats_FPR_max=bind_cols(CCC_Mimic_auc, XGB_Stats_FPR_max)
+colnames(XGB_DA_Stats_FPR_max)[1]="AUC"
+
+##.2 threshold
+XGB_Stats_FPR_mid=pROC::coords(XGB_ROCobj_M, 0.2, ret=c("threshold", "tn", "tp", "fn", "fp", "sensitivity",
+                                                     "specificity", "accuracy", "tpr", "tnr", "fnr", "fpr",
+                                                     "npv", "ppv", "youden", "closest.topleft"))
+XGB_DA_Stats_FPR_mid=bind_cols(CCC_Mimic_auc, XGB_Stats_FPR_mid)
+colnames(XGB_DA_Stats_FPR_mid)[1]="AUC"
+
+##.1 threshold
+XGB_Stats_FPR_min=pROC::coords(XGB_ROCobj_M, 0.1, ret=c("threshold", "tn", "tp", "fn", "fp", "sensitivity",
+                                                     "specificity", "accuracy", "tpr", "tnr", "fnr", "fpr",
+                                                     "npv", "ppv", "youden", "closest.topleft"))
+XGB_DA_Stats_FPR_min=bind_cols(CCC_Mimic_auc, XGB_Stats_FPR_min)
+colnames(XGB_DA_Stats_FPR_min)[1]="AUC"
+
+###.5 rename
+DAStat_Default=DAStat_Default%>%
+  select(-Sensitivity, -Specificity, -Accuracy, -Pos.Pred.Value, -Neg.Pred.Value, -Pred_Mimic_Ref_Mimic, -Pred_Stroke_Ref_Mimic,	-Pred_Mimic_Ref_Stroke,	-Pred_Stroke_Ref_Stroke, -cm_ts)
+
+XGB_Stats_def=bind_cols(XGB_Stats_def, DAStat_Default)
+
+XGB_Stats_def=XGB_Stats_def%>%
+  rename_with(~New_names[which(OG_names==.x)],.cols=OG_names)
+XGB_Stats_def
+XGB_Stats_defL=XGB_Stats_def%>%
+  pivot_longer(cols = everything())
+
+###.9 rename
+FPR_CM_DAStat_Zero=FPR_CM_DAStat_Zero%>%
+  select(-Sensitivity, -Specificity, -Accuracy, -Pos.Pred.Value, -Neg.Pred.Value, -Pred_Mimic_Ref_Mimic, -Pred_Stroke_Ref_Mimic,	-Pred_Mimic_Ref_Stroke,	-Pred_Stroke_Ref_Stroke, -cm_ts)
+
+XGB_DA_Stats_FPR_Zero=bind_cols(XGB_DA_Stats_FPR_Zero, FPR_CM_DAStat_Zero)
+
+XGB_DA_Stats_FPR_Zero=XGB_DA_Stats_FPR_Zero%>%
+  rename_with(~New_names[which(OG_names==.x)],.cols=OG_names)
+XGB_DA_Stats_FPR_Zero
+XGB_DA_Stats_FPR_ZeroL=XGB_DA_Stats_FPR_Zero%>%
+  pivot_longer(cols = everything())
+
+###.8 rename
+FPR_CM_DAStat_XEX=FPR_CM_DAStat_XEX%>%
+  select(-Sensitivity, -Specificity, -Accuracy, -Pos.Pred.Value, -Neg.Pred.Value, -Pred_Mimic_Ref_Mimic, -Pred_Stroke_Ref_Mimic,	-Pred_Mimic_Ref_Stroke,	-Pred_Stroke_Ref_Stroke, -cm_ts)
+
+XGB_DA_Stats_FPR_XEX=bind_cols(XGB_DA_Stats_FPR_XEX, FPR_CM_DAStat_XEX)
+
+XGB_DA_Stats_FPR_XEX=XGB_DA_Stats_FPR_XEX%>%
+  rename_with(~New_names[which(OG_names==.x)],.cols=OG_names)
+XGB_DA_Stats_FPR_XEX
+XGB_DA_Stats_FPR_XEXL=XGB_DA_Stats_FPR_XEX%>%
+  pivot_longer(cols = everything())
+
+###.7 rename
+FPR_CM_DAStat_EX=FPR_CM_DAStat_EX%>%
+  select(-Sensitivity, -Specificity, -Accuracy, -Pos.Pred.Value, -Neg.Pred.Value, -Pred_Mimic_Ref_Mimic, -Pred_Stroke_Ref_Mimic,	-Pred_Mimic_Ref_Stroke,	-Pred_Stroke_Ref_Stroke, -cm_ts)
+
+XGB_DA_Stats_FPR_EX=bind_cols(XGB_DA_Stats_FPR_EX, FPR_CM_DAStat_EX)
+
+XGB_DA_Stats_FPR_EX=XGB_DA_Stats_FPR_EX%>%
+  rename_with(~New_names[which(OG_names==.x)],.cols=OG_names)
+XGB_DA_Stats_FPR_EX
+XGB_DA_Stats_FPR_EXL=XGB_DA_Stats_FPR_EX%>%
+  pivot_longer(cols = everything())
+
+###.6 rename
+FPR_CM_DAStat_TX=FPR_CM_DAStat_TX%>%
+  select(-Sensitivity, -Specificity, -Accuracy, -Pos.Pred.Value, -Neg.Pred.Value, -Pred_Mimic_Ref_Mimic, -Pred_Stroke_Ref_Mimic,	-Pred_Mimic_Ref_Stroke,	-Pred_Stroke_Ref_Stroke, -cm_ts)
+
+XGB_DA_Stats_FPR_TX=bind_cols(XGB_DA_Stats_FPR_TX, FPR_CM_DAStat_TX)
+
+XGB_DA_Stats_FPR_TX=XGB_DA_Stats_FPR_TX%>%
+  rename_with(~New_names[which(OG_names==.x)],.cols=OG_names)
+XGB_DA_Stats_FPR_TX
+XGB_DA_Stats_FPR_TXL=XGB_DA_Stats_FPR_TX%>%
+  pivot_longer(cols = everything())
+
+
+###.5 rename
+FPR_CM_DAStat_TF=FPR_CM_DAStat_TF%>%
+  select(-Sensitivity, -Specificity, -Accuracy, -Pos.Pred.Value, -Neg.Pred.Value, -Pred_Mimic_Ref_Mimic, -Pred_Stroke_Ref_Mimic,	-Pred_Mimic_Ref_Stroke,	-Pred_Stroke_Ref_Stroke, -cm_ts)
+
+XGB_DA_Stats_FPR_TF=bind_cols(XGB_DA_Stats_FPR_TF, FPR_CM_DAStat_TF)
+
+XGB_DA_Stats_FPR_TF=XGB_DA_Stats_FPR_TF%>%
+  rename_with(~New_names[which(OG_names==.x)],.cols=OG_names)
+XGB_DA_Stats_FPR_TF
+XGB_DA_Stats_FPR_TFL=XGB_DA_Stats_FPR_TF%>%
+  pivot_longer(cols = everything())
+
+###.4 rename
+
+FPR_CM_DAStat_maxx=FPR_CM_DAStat_maxx%>%
+  select(-Sensitivity, -Specificity, -Accuracy, -Pos.Pred.Value, -Neg.Pred.Value, -Pred_Mimic_Ref_Mimic, -Pred_Stroke_Ref_Mimic,	-Pred_Mimic_Ref_Stroke,	-Pred_Stroke_Ref_Stroke, -cm_ts)
+
+XGB_DA_Stats_min_FPRX=bind_cols(XGB_DA_Stats_min_FPRX, FPR_CM_DAStat_maxx)
+
+XGB_DA_Stats_min_FPRX=XGB_DA_Stats_min_FPRX%>%
+  rename_with(~New_names[which(OG_names==.x)],.cols=OG_names)
+XGB_DA_Stats_min_FPRX
+XGB_DA_Stats_min_FPRXL=XGB_DA_Stats_min_FPRX%>%
+  pivot_longer(cols = everything())
+
+###.3 rename
+FPR_CM_DAStat_max=FPR_CM_DAStat_max%>%
+  select(-Sensitivity, -Specificity, -Accuracy, -Pos.Pred.Value, -Neg.Pred.Value, -Pred_Mimic_Ref_Mimic, -Pred_Stroke_Ref_Mimic,	-Pred_Mimic_Ref_Stroke,	-Pred_Stroke_Ref_Stroke, -cm_ts)
+
+XGB_DA_Stats_FPR_max=bind_cols(XGB_DA_Stats_FPR_max, FPR_CM_DAStat_max)
+
+XGB_DA_Stats_FPR_max=XGB_DA_Stats_FPR_max%>%
+  rename_with(~New_names[which(OG_names==.x)],.cols=OG_names)
+XGB_DA_Stats_FPR_max
+XGB_DA_Stats_FPR_maxL=XGB_DA_Stats_FPR_max%>%
+  pivot_longer(cols = everything())
+
+
+##.2 rename
+FPR_CM_DAStat_mid=FPR_CM_DAStat_mid%>%
+  select(-Sensitivity, -Specificity, -Accuracy, -Pos.Pred.Value, -Neg.Pred.Value, -Pred_Mimic_Ref_Mimic, -Pred_Stroke_Ref_Mimic,	-Pred_Mimic_Ref_Stroke,	-Pred_Stroke_Ref_Stroke, -cm_ts)
+
+XGB_DA_Stats_FPR_mid=bind_cols(XGB_DA_Stats_FPR_mid, FPR_CM_DAStat_mid)
+
+XGB_DA_Stats_FPR_mid=XGB_DA_Stats_FPR_mid%>%
+  rename_with(~New_names[which(OG_names==.x)],.cols=OG_names)
+XGB_DA_Stats_FPR_mid
+XGB_DA_Stats_FPR_midL=XGB_DA_Stats_FPR_mid%>%
+  pivot_longer(cols = everything())
+
+
+##.1 rename
+FPR_CM_DAStat_min=FPR_CM_DAStat_min%>%
+  select(-Sensitivity, -Specificity, -Accuracy, -Pos.Pred.Value, -Neg.Pred.Value, -Pred_Mimic_Ref_Mimic, -Pred_Stroke_Ref_Mimic,	-Pred_Mimic_Ref_Stroke,	-Pred_Stroke_Ref_Stroke, -cm_ts)
+
+XGB_DA_Stats_FPR_min=bind_cols(XGB_DA_Stats_FPR_min, FPR_CM_DAStat_min)
+
+XGB_DA_Stats_FPR_min=XGB_DA_Stats_FPR_min%>%
+  rename_with(~New_names[which(OG_names==.x)],.cols=OG_names)
+XGB_DA_Stats_FPR_min
+XGB_DA_Stats_FPR_minL=XGB_DA_Stats_FPR_min%>%
+  pivot_longer(cols = everything())
+
+##Youdens rename
+FPR_CM_DAStat_Youd=FPR_CM_DAStat_Youd%>%
+  select(-Sensitivity, -Specificity, -Accuracy, -Pos.Pred.Value, -Neg.Pred.Value, -Pred_Mimic_Ref_Mimic, -Pred_Stroke_Ref_Mimic,	-Pred_Mimic_Ref_Stroke,	-Pred_Stroke_Ref_Stroke, -cm_ts)
+
+XGB_DA_Stats_Youd=bind_cols(XGB_DA_Stats_Youd, FPR_CM_DAStat_Youd)
+
+XGB_DA_Stats_Youd=XGB_DA_Stats_Youd%>%
+  rename_with(~New_names[which(OG_names==.x)],.cols=OG_names)
+XGB_DA_Stats_Youd
+XGB_DA_Stats_YoudL=XGB_DA_Stats_Youd%>%
+  pivot_longer(cols = everything())
+
+######Table of Diagnostic Accuracy Statistics##########
+
+##.5
+DA_Stats_gt_def=gt(XGB_Stats_defL)%>%
+  cols_label(name="Statistic",
+             value="Value")%>%
+  fmt_number(columns=everything(),
+             drop_trailing_zeros = TRUE,
+             decimals=3)%>%
+  tab_header("Diagnostic Accuracy Statistics for threshold = .5 (probability >50% = Mimic)")%>%
+  tab_style(style=list(cell_text(weight="bold")), locations=cells_title())
+DA_Stats_gt_def
+
+##.9
+DA_Stats_FPR_gt_Zero=gt(XGB_DA_Stats_FPR_ZeroL)%>%
+  cols_label(name="Statistic",
+             value="Value")%>%
+  fmt_number(columns=everything(),
+             drop_trailing_zeros = TRUE,
+             decimals=3)%>%
+  tab_header("Diagnostic Accuracy Statistics for threshold = .88 (probability >88% = Mimic)")%>%
+  tab_style(style=list(cell_text(weight="bold")), locations=cells_title())
+DA_Stats_FPR_gt_Zero
+
+##.8
+DA_Stats_FPR_gt_XEX=gt(XGB_DA_Stats_FPR_XEXL)%>%
+  cols_label(name="Statistic",
+             value="Value")%>%
+  fmt_number(columns=everything(),
+             drop_trailing_zeros = TRUE,
+             decimals=3)%>%
+  tab_header("Diagnostic Accuracy Statistics for threshold = .85 (probability >85% = Mimic)")%>%
+  tab_style(style=list(cell_text(weight="bold")), locations=cells_title())
+DA_Stats_FPR_gt_XEX
+
+
+##.7
+DA_Stats_FPR_gt_EX=gt(XGB_DA_Stats_FPR_EXL)%>%
+  cols_label(name="Statistic",
+             value="Value")%>%
+  fmt_number(columns=everything(),
+             drop_trailing_zeros = TRUE,
+             decimals=3)%>%
+  tab_header("Diagnostic Accuracy Statistics for threshold = .8 (probability >80% = Mimic)")%>%
+  tab_style(style=list(cell_text(weight="bold")), locations=cells_title())
+DA_Stats_FPR_gt_EX
+
+##.6
+DA_Stats_FPR_gt_TX=gt(XGB_DA_Stats_FPR_TXL)%>%
+  cols_label(name="Statistic",
+             value="Value")%>%
+  fmt_number(columns=everything(),
+             drop_trailing_zeros = TRUE,
+             decimals=3)%>%
+  tab_header("Diagnostic Accuracy Statistics for threshold = .75 (probability >75% = Mimic)")%>%
+  tab_style(style=list(cell_text(weight="bold")), locations=cells_title())
+DA_Stats_FPR_gt_TX
+
+##.5
+DA_Stats_FPR_gt_TF=gt(XGB_DA_Stats_FPR_TFL)%>%
+  cols_label(name="Statistic",
+             value="Value")%>%
+  fmt_number(columns=everything(),
+             drop_trailing_zeros = TRUE,
+             decimals=3)%>%
+  tab_header("Diagnostic Accuracy Statistics for threshold = .7 (probability >70% = Mimic)")%>%
+  tab_style(style=list(cell_text(weight="bold")), locations=cells_title())
+DA_Stats_FPR_gt_TF
+
+##.4
+DA_Stats_FPR_gt_min=gt(XGB_DA_Stats_min_FPRXL)%>%
+  cols_label(name="Statistic",
+             value="Value")%>%
+  fmt_number(columns=everything(),
+             drop_trailing_zeros = TRUE,
+             decimals=3)%>%
+  tab_header("Diagnostic Accuracy Statistics for threshold = .68 (probability >68% = Mimic)")%>%
+  tab_style(style=list(cell_text(weight="bold")), locations=cells_title())
+DA_Stats_FPR_gt_min
+
+
+##.3
+DA_Stats_FPR_gt_mx=gt(XGB_DA_Stats_FPR_maxL)%>%
+  cols_label(name="Statistic",
+             value="Value")%>%
+  fmt_number(columns=everything(),
+             drop_trailing_zeros = TRUE,
+             decimals=3)%>%
+  tab_header("Diagnostic Accuracy Statistics for threshold = .65 (probability >65% = Mimic)")%>%
+  tab_style(style=list(cell_text(weight="bold")), locations=cells_title())
+DA_Stats_FPR_gt_mx
+
+##.2
+DA_Stats_FPR_gt_md=gt(XGB_DA_Stats_FPR_midL)%>%
+  cols_label(name="Statistic",
+             value="Value")%>%
+  fmt_number(columns=everything(),
+             drop_trailing_zeros = TRUE,
+             decimals=3)%>%
+  tab_header("Diagnostic Accuracy Statistics for threshold = .62 (probability >62% = Mimic)")%>%
+  tab_style(style=list(cell_text(weight="bold")), locations=cells_title())
+DA_Stats_FPR_gt_md
+
+
+##.1
+DA_Stats_FPR_gt_mn=gt(XGB_DA_Stats_FPR_minL)%>%
+  cols_label(name="Statistic",
+             value="Value")%>%
+  fmt_number(columns=everything(),
+             drop_trailing_zeros = TRUE,
+             decimals=3)%>%
+  tab_header("Diagnostic Accuracy Statistics for threshold = .6 (probability >60% = Mimic)")%>%
+  tab_style(style=list(cell_text(weight="bold")), locations=cells_title())
+DA_Stats_FPR_gt_mn
+
+##Youdens
+DA_Stats_gt_Youd=gt(XGB_DA_Stats_YoudL)%>%
+  cols_label(name="Statistic",
+             value="Value")%>%
+  fmt_number(columns=everything(),
+             drop_trailing_zeros = TRUE,
+             decimals=3)%>%
+tab_header(sprintf("Diagnostic Accuracy Statistics for threshold = %0.2f (probability >%2.0f%% = Mimic)", Best_thresh, Best_thresh*100))%>%
+  tab_style(style=list(cell_text(weight="bold")), locations=cells_title())
+DA_Stats_gt_Youd
+
+
+##Table of all thresholds
+
+All_Thresh=bind_rows(XGB_DA_Stats_FPR_min, XGB_DA_Stats_FPR_mid, XGB_DA_Stats_FPR_max, XGB_DA_Stats_Youd,
+                 XGB_DA_Stats_min_FPRX, XGB_DA_Stats_FPR_TF, XGB_DA_Stats_FPR_TX, 
+                 XGB_DA_Stats_FPR_EX, XGB_DA_Stats_FPR_XEX, XGB_DA_Stats_FPR_Zero)
+
+All_Threshnoauc=All_Thresh%>%
+  select(-"AUC")
+
+All_ThreshL=pivot_longer(All_Threshnoauc, cols=c("True Negative":"Balanced Accuracy"), names_to="names", values_to="value")
+
+All_ThreshL$Threshold=round(All_ThreshL$Threshold, 2)
+
+All_ThreshL$value=ifelse(All_ThreshL$names=="Youden's Index", All_ThreshL$value-1, All_ThreshL$value)
+
+All_ThreshL$value=ifelse(All_ThreshL$names=="True Positive"| All_ThreshL$names=="True Negative"| All_ThreshL$names=="False Positive" |All_ThreshL$names=="False Negative", sprintf("%s (%.2s%%)",All_ThreshL$value, round((All_ThreshL$value/1151)*100,0)), round(All_ThreshL$value, 2))
+
+
+  All_ThreshW=pivot_wider(All_ThreshL, names_from = Threshold, values_from=value)
+  colnames(All_ThreshW)[1]="Statistic"
+  
+  #Alternative
+  All_ThreshW=pivot_wider(All_ThreshL, names_from = names, values_from=value)
+  colnames(All_ThreshW)[1]="Threshold"
+  
+
+All_ThreshGTL=gt(All_ThreshW)%>%
+  fmt_number(columns=everything(),
+             drop_trailing_zeros = TRUE,
+             decimals=2)%>%
+  tab_header(title=md(sprintf("**Diagnostic Accuracy Statistics for Various Thresholds, AUC=%s**", All_Thresh$AUC[1])))%>%
+    tab_spanner(label=md("**Thresholds**"), columns=everything())
+All_ThreshGTL
+
+gtsave(All_ThreshGTL, filename="DA Stats all Thresholds.docx", path="H:/Documents/PhD/1. Retrospective Study (Machine Learning)/Analysis/XGB Results/Complete Cases Analysis/DA Statistics")
+
+```
+  
+##### Plot Predictions #####
+```{r}
+
+#.65 threshold
+XGB_preds_CCC$Predicted_Class=ifelse(XGB_preds_CCC$Mimic_Prediction>.65, "Mimic", "Stroke")
+
+True_Class=data.frame(XGB_preds_CCC$Diagnosis)
+Pred_Class=data.frame(XGB_preds_CCC$Predicted_Class)
+Preds_FNR=bind_cols(True_Class, Pred_Class)
+colnames(Preds_FNR)[1]="True Class"
+colnames(Preds_FNR)[2]="Predicted Class"
+
+# Mimic probabilities with predictions and diagnoses## 
+Pred_CCC_Plot=ggplot(XGB_preds_CCC, aes(Row, Mimic_Prediction, color=Diagnosis, fill=Predicted_Class))+
+  geom_point(shape=21, size=1.5, stroke=1.5)+
+  labs(title="Stroke versus Mimic Classification Accuracy", y="Probability of Stroke Mimic", 
+       x="Case Number")+
+    scale_color_manual(values=c("#FD0113", "#2717F5"), name="Diagnosis")+
+  scale_fill_manual(values=c("#FD0113", "#2717F5"), name="Predicted Class (threshold .65)")+
+  theme_light()+
+  theme(plot.title=element_text(face="bold", hjust=.5),
+        axis.title.x = element_text(face="bold"),
+        axis.title.y = element_text(face="bold"),
+        legend.title = element_text(face="bold"))
+Pred_CCC_Plot
+
+# Mimic probabilities with diagnoses## 
+
+Pred_D_Plot=ggplot(XGB_preds_CCC, aes(x=Mimic_Prediction, y=Diagnosis, color=Diagnosis, fill=Predicted_Class))+
+  geom_point(shape=21, size=2.5, stroke=2)+
+  labs(title="Stroke versus Mimic Classification Accuracy", xlab="Probability of Stroke Mimic", 
+       ylab="Case Number")+ 
+  scale_color_manual(values=c("#FD0113", "#2717F5"))+
+    scale_fill_manual(values=c("#FD0113", "#2717F5"), name="Predicted Class (threshold .65)")+
+  theme_light()+
+  theme(plot.title=element_text(face="bold", hjust=.5),
+        axis.title.x = element_text(face="bold"),
+        axis.title.y = element_text(face="bold"),
+        legend.title = element_text(face="bold"))
+Pred_D_Plot
+
+# Stroke probabilities with predictions and diagnoses## 
+Pred_CCC_Plot=ggplot(XGB_preds_CCC, aes(Stroke_Prediction, Diagnosis, color=Diagnosis, fill=Predicted_Class))+
+  geom_point(shape=21, size=1.5, stroke=1.5)+
+  labs(title="Stroke versus Mimic Classification Accuracy", x="Probability of Stroke", 
+       y="Case Number")+
+    scale_color_manual(values=c("#FD0113", "#2717F5"), name="Diagnosis")+
+  scale_fill_manual(values=c("#FD0113", "#2717F5"), name="Predicted Class (threshold .65)")+
+  theme_light()+
+  theme(plot.title=element_text(face="bold", hjust=.5),
+        axis.title.x = element_text(face="bold"),
+        axis.title.y = element_text(face="bold"),
+        legend.title = element_text(face="bold"))
+Pred_CCC_Plot
+
+#Stroke and Mimic probabilities with predictions and diagnoses#
+Pred_TCCC_Plot=ggplot(XGB_preds_CCC, aes(x=Mimic_Prediction, y=Stroke_Prediction, color=Diagnosis, fill=Predicted_Class))+
+  geom_point(shape=21, size=3, stroke=3)+
+  labs(title="Stroke versus Mimic Classification Accuracy (Testing Set)", x="Probability of Stroke Mimic", y="Probability of Stroke")+
+    scale_color_manual(values=c("#FD0113", "#2717F5"), name="Diagnosis")+
+  scale_fill_manual(values=c("#FD0113", "#2717F5"), name="Predicted Class (threshold .65)")+
+  theme_light()+
+    theme(plot.title=element_text(face="bold", hjust=.5, size=18),
+           axis.title.x = element_text(face="bold", size=18),
+           axis.title.y = element_text(face="bold", size=18),
+           axis.text = element_text(face="bold", size=18),
+           legend.title = element_text(face="bold", size=18),
+           legend.text = element_text(face="bold", size=18))
+Pred_TCCC_Plot
+
+ggsave(plot=Pred_TCCC_Plot, path="H:/Documents/PhD/1. Retrospective Study (Machine Learning)/Analysis/XGB Results/Complete Cases Analysis/Prediction Probability Plots", filename="Testing Predictions for 65 2.png", height=8, width=15)
+
+
+#Stroke and Mimic probabilities with diagnoses# 
+Pred_TCCC_Plot=ggplot(XGB_preds_CCC, aes(x=Mimic_Prediction, y=Stroke_Prediction, color=Diagnosis))+
+  geom_point(shape=16, size=3)+
+  labs(title="Stroke versus Mimic Classification Accuracy", x="Probability of Stroke Mimic", y="Probability of Stroke")+
+  scale_color_manual(values=c("#FD0113", "#2717F5"))+
+  theme_light()+
+ theme(plot.title=element_text(face="bold", hjust=.5, size=12),
+        axis.title.x = element_text(face="bold"),
+        axis.title.y = element_text(face="bold"),
+        legend.title = element_text(face="bold"))
+Pred_TCCC_Plot
+
+
+#Exploring overfitting
+
+##Training 
+Pred_TrCCC_Plot=ggplot(Train_predict, aes(x=Mimic_Prediction, y=Stroke_Prediction, color=Diagnosis, fill=Predicted_Class))+
+     geom_point(shape=21, size=3, stroke=3)+
+     labs(title="Stroke versus Mimic Classification Accuracy (Training Set)", x="Probability of Stroke Mimic", y="Probability of Stroke")+
+     scale_color_manual(values=c("#FD0113", "#2717F5"), name="Diagnosis")+
+     scale_fill_manual(values=c("#FD0113", "#2717F5"), name="Predicted Class (threshold .65)")+
+     theme_light()+
+     theme(plot.title=element_text(face="bold", hjust=.5, size=18),
+           axis.title.x = element_text(face="bold", size=18),
+           axis.title.y = element_text(face="bold", size=18),
+           axis.text = element_text(face="bold", size=18),
+           legend.title = element_text(face="bold", size=18),
+           legend.text = element_text(face="bold", size=18))
+Pred_TrCCC_Plot
+
+ggsave(plot=Pred_TrCCC_Plot, path="H:/Documents/PhD/1. Retrospective Study (Machine Learning)/Analysis/XGB Results/Complete Cases Analysis/Prediction Probability Plots", filename="Training Predictions.png", height=8, width=15)
+
+#Facet the plots for WD
+Preds_facet=gridExtra::grid.arrange(Pred_TCCC_Plot, Pred_TrCCC_Plot, nrow=2)
+Preds_facet
+
+ggsave(plot=Preds_facet, path="H:/Documents/PhD/1. Retrospective Study (Machine Learning)/Analysis/XGB Results/Complete Cases Analysis/Prediction Probability Plots", filename=" Facet Predictions.png", height=10, width=16)
+
+#Whole dataset
+
+Pred_WCCC_Plot=ggplot(CC_predict, aes(x=Mimic_Prediction, y=Stroke_Prediction, color=Diagnosis, fill=Predicted_Class))+
+     geom_point(shape=21, size=3, stroke=3)+
+     labs(title="Stroke versus Mimic Classification Accuracy (Full Dataset)", x="Probability of Stroke Mimic", y="Probability of Stroke")+
+     scale_color_manual(values=c("#FD0113", "#2717F5"), name="Diagnosis")+
+     scale_fill_manual(values=c("#FD0113", "#2717F5"), name="Predicted Class (threshold .65)")+
+     theme_light()+
+     theme(plot.title=element_text(face="bold", hjust=.5),
+           axis.title.x = element_text(face="bold"),
+           axis.title.y = element_text(face="bold"),
+           legend.title = element_text(face="bold"))
+Pred_WCCC_Plot
+
+```
+  
+##### Confusion Matrices #####
+```{r}
+ 
+  ##### Mini confusion matrices #####
+  
+  ##.9
+  XGB_FPR_CM_Zero=Preds_FPR_Zero%>%
+    conf_mat(Truth_Class, Zero_FPR_XEX)
+  XGB_FPR_CM_Zero
+  
+  ##.8
+  XGB_FPR_CM_XEX=Preds_FPR_XEX%>%
+    conf_mat(Truth_Class, Min_FPR_XEX)
+  XGB_FPR_CM_XEX
+  
+  ##.7
+  XGB_FPR_CM_EX=Preds_FPR_EX%>%
+    conf_mat(Truth_Class, Min_FPR_EX)
+  XGB_FPR_CM_EX
+  
+  ##.6
+  XGB_FPR_CM_TX=Preds_FPR_TX%>%
+    conf_mat(Truth_Class, Min_FPR_TX)
+  XGB_FPR_CM_TX
+  
+  ##.5
+  XGB_FPR_CM_TF=Preds_FPR_TF%>%
+    conf_mat(Truth_Class, Min_FPR_TF)
+  XGB_FPR_CM_TF
+  
+    ##.4
+  XGB_FPR_CM_maxx=Preds_FPR_maxx%>%
+    conf_mat(Truth_Class, Min_FPR_maxx)
+  XGB_FPR_CM_maxx
+  
+  ##.3
+  XGB_FPR_CM_max=Preds_FPR_max%>%
+    conf_mat(Truth_Class, Min_FPR_max)
+  XGB_FPR_CM_max
+  
+  ##.2
+  XGB_FPR_CM_mid=Preds_FPR_mid%>%
+    conf_mat(Truth_Class, Min_FPR_mid)
+  XGB_FPR_CM_mid
+  
+  ##.1
+  XGB_FPR_CM_min=Preds_FPR_min%>%
+    conf_mat(Truth_Class, Min_FPR_min)
+  XGB_FPR_CM_min
+  
+  ## youden
+  XGB_CM_Youd=Preds_Youden%>%
+    conf_mat(Truth_Class, Youden_Thresh)
+  XGB_CM_Youd
+  
+  ## default
+  XGB_CM_Def=Preds_def_thresh%>%
+    conf_mat(Truth_Class, def_thresh)
+  XGB_CM_Def
+  
+  ######GGplot confusion matrices#####
+  
+  #Confusion table for .9 matrix
+  TPR_Zero=XGB_FPR_CM_Zero$table[1]
+  FNR_Zero=XGB_FPR_CM_Zero$table[2]
+  FPR_Zero=XGB_FPR_CM_Zero$table[3]
+  TNR_Zero=XGB_FPR_CM_Zero$table[4]
+  
+  Truth_Class_fct=factor(c("Mimic", "Mimic", "Stroke","Stroke"))
+  Pred_Class=factor(c("Mimic", "Stroke", "Mimic", "Stroke"))
+  Frequency_Zero=c(FNR_Zero,TPR_Zero, TNR_Zero, FPR_Zero)
+  
+  CM_FPR_DF_Zero=data.frame(Truth_Class_fct, Pred_Class, Frequency_Zero)
+  
+   #had to label the wrong way round to make it display correctly in the plot 
+     Correct_9=ifelse(CM_FPR_DF_Zero$Truth_Class_fct!=CM_FPR_DF_Zero$Pred_Class, "Correct", "Incorrect")
+  
+  #Confusion matrix for .9
+  Conf_Mat_FPR_Zero=ggplot(CM_FPR_DF_Zero, aes(x=Truth_Class_fct, y=Pred_Class))+
+    geom_tile(aes(fill=Correct_9), colour="white")+
+    geom_text(aes(label=sprintf("%1.0f", Frequency_Zero)), vjust=1, color="White", fontface="bold", size=12)+
+    scale_x_discrete(position="top")+
+    scale_y_discrete(labels=c("Stroke", "Mimic"))+
+    scale_fill_manual(values=c(Incorrect="#EC008C", Correct="#80BC00"), name="Classification")+
+    labs(x="True Class", y="Predicted Class",
+         title="Evaluation matrix depicting the accuracy of Stroke versus
+         Stroke Mimic classification (Threshold >0.9 = Mimic)")+
+    theme_light()+
+    theme(legend.text = element_text(face = "bold", size=14),
+          legend.title = element_text(face="bold", size=14),
+          plot.title = element_text(face="bold", size=14, hjust=0.5),
+          axis.text = element_text(face="bold", size=14),
+          axis.title = element_text(face="bold", size=14)
+    )
+  Conf_Mat_FPR_Zero
+  
+    ggsave(plot=Conf_Mat_FPR_Zero, path="H:/Documents/PhD/1. Retrospective Study (Machine Learning)/Analysis/XGB Results/Complete Cases Analysis/Confusion Matrix", filename="Confusion Matrix .88.png", height=5, width=6)
+  
+  #Confusion table for .8 matrix
+  TPR_XEX=XGB_FPR_CM_XEX$table[1]
+  FNR_XEX=XGB_FPR_CM_XEX$table[2]
+  FPR_XEX=XGB_FPR_CM_XEX$table[3]
+  TNR_XEX=XGB_FPR_CM_XEX$table[4]
+  
+  Truth_Class_fct=factor(c("Mimic", "Mimic", "Stroke", "Stroke"))
+  Pred_Class=factor(c("Mimic", "Stroke", "Mimic", "Stroke"))
+  Frequency_XEX=c(FNR_XEX, TPR_XEX, TNR_XEX, FPR_XEX)
+  
+  CM_FPR_DF_XEX=data.frame(Truth_Class_fct, Pred_Class, Frequency_XEX)
+  
+     #had to label the wrong way round to make it display correctly in the plot 
+     Correct_8=ifelse(CM_FPR_DF_XEX$Truth_Class_fct!=CM_FPR_DF_XEX$Pred_Class, "Correct", "Incorrect")
+  
+  #Confusion matrix for .8
+  Conf_Mat_FPR_XEX=ggplot(CM_FPR_DF_XEX, aes(x=Truth_Class_fct, y=Pred_Class))+
+    geom_tile(aes(fill=Correct_8), colour="white")+
+    geom_text(aes(label=sprintf("%1.0f", Frequency_XEX)), vjust=1, color="White", fontface="bold", size=12)+
+    scale_x_discrete(position="top")+
+    scale_y_discrete(labels=c("Stroke", "Mimic"))+
+    scale_fill_manual(values=c(Incorrect="#EC008C", Correct="#80BC00"), name="Classification")+
+    labs(x="True Class", y="Predicted Class", 
+         title="Evaluation matrix depicting the accuracy of Stroke versus 
+         Stroke Mimic classification (Threshold >0.8 = Mimic)")+
+    theme_light()+
+    theme(legend.text = element_text(face = "bold", size=14),
+          legend.title = element_text(face="bold", size=14),
+          plot.title = element_text(face="bold", size=14, hjust=0.5),
+          axis.text = element_text(face="bold", size=14),
+          axis.title = element_text(face="bold", size=14)
+          )
+  Conf_Mat_FPR_XEX
+  
+    ggsave(plot=Conf_Mat_FPR_XEX, path="H:/Documents/PhD/1. Retrospective Study (Machine Learning)/Analysis/XGB Results/Complete Cases Analysis/Confusion Matrix", filename="Confusion Matrix .85.png", height=5, width=6)
+  
+  #Confusion table for .7 matrix
+  TPR_EX=XGB_FPR_CM_EX$table[1]
+  FNR_EX=XGB_FPR_CM_EX$table[2]
+  FPR_EX=XGB_FPR_CM_EX$table[3]
+  TNR_EX=XGB_FPR_CM_EX$table[4]
+  
+  
+  Truth_Class_fct=factor(c("Mimic", "Mimic", "Stroke", "Stroke"))
+  Pred_Class=factor(c("Mimic", "Stroke", "Mimic", "Stroke"))
+  Frequency_EX=c(FNR_EX, TPR_EX, TNR_EX, FPR_EX)
+  
+  CM_FPR_DF_EX=data.frame(Truth_Class_fct, Pred_Class, Frequency_EX)
+  
+  Correct_7=ifelse(CM_FPR_DF_EX$Truth_Class_fct!=CM_FPR_DF_EX$Pred_Class, "Correct", "Incorrect")
+
+  
+  #Confusion matrix for .7
+  Conf_Mat_FPR_EX=ggplot(CM_FPR_DF_EX, aes(x=Truth_Class_fct, y=Pred_Class))+
+    geom_tile(aes(fill=Correct_7), colour="white")+
+    geom_text(aes(label=sprintf("%1.0f", Frequency_EX)), vjust=1, color="White", fontface="bold", size=12)+
+    scale_x_discrete(position="top")+
+    scale_y_discrete(labels=c("Stroke", "Mimic"))+
+    scale_fill_manual(values=c(Incorrect="#EC008C", Correct="#80BC00"), name="Classification")+
+    labs(x="True Class", y="Predicted Class", 
+         title="Evaluation matrix depicting the accuracy of Stroke versus 
+         Stroke Mimic classification (Threshold >.7 = Mimic)")+
+    theme_light()+
+    theme(legend.text = element_text(face = "bold", size=14),
+          legend.title = element_text(face="bold", size=14),
+          plot.title = element_text(face="bold", size=14, hjust=0.5),
+          axis.text = element_text(face="bold", size=14),
+          axis.title = element_text(face="bold", size=14)
+    )
+  Conf_Mat_FPR_EX
+  
+      ggsave(plot=Conf_Mat_FPR_EX, path="H:/Documents/PhD/1. Retrospective Study (Machine Learning)/Analysis/XGB Results/Complete Cases Analysis/Confusion Matrix", filename="Confusion Matrix .80.png", height=5, width=6)
+  
+  #Confusion table for .6 matrix
+  TPR_TX=XGB_FPR_CM_TX$table[1]
+  FNR_TX=XGB_FPR_CM_TX$table[2]
+  FPR_TX=XGB_FPR_CM_TX$table[3]
+  TNR_TX=XGB_FPR_CM_TX$table[4]
+  
+  Truth_Class_fct=factor(c("Mimic", "Mimic", "Stroke", "Stroke"))
+  Pred_Class=factor(c("Mimic", "Stroke", "Mimic", "Stroke"))
+  Frequency_TX=c(FNR_TX, TPR_TX, TNR_TX, FPR_TX)
+  
+  CM_FPR_DF_TX=data.frame(Truth_Class_fct, Pred_Class, Frequency_TX)
+  
+  Correct_6=ifelse(CM_FPR_DF_TX$Truth_Class_fct!=CM_FPR_DF_TX$Pred_Class, "Correct", "Incorrect")
+
+  
+  #Confusion matrix for .6
+  Conf_Mat_FPR_TX=ggplot(CM_FPR_DF_TX, aes(x=Truth_Class_fct, y=Pred_Class))+
+    geom_tile(aes(fill=Correct_6), colour="white")+
+    geom_text(aes(label=sprintf("%1.0f", Frequency_TX)), vjust=1, color="White", fontface="bold", size=12)+
+    scale_x_discrete(position="top")+
+    scale_y_discrete(labels=c("Stroke", "Mimic"))+
+    scale_fill_manual(values=c(Incorrect="#EC008C", Correct="#80BC00"), name="Classification")+
+    labs(x="True Class", y="Predicted Class", 
+         title="Evaluation matrix depicting the accuracy of Stroke versus 
+         Stroke Mimic classification (Threshold >0.6 = Mimic)")+
+    theme_light()+
+    theme(legend.text = element_text(face = "bold", size=14),
+          legend.title = element_text(face="bold", size=14),
+          plot.title = element_text(face="bold", size=14, hjust=0.5),
+          axis.text = element_text(face="bold", size=14),
+          axis.title = element_text(face="bold", size=14)
+    )
+  Conf_Mat_FPR_TX
+  
+      ggsave(plot=Conf_Mat_FPR_TX, path="H:/Documents/PhD/1. Retrospective Study (Machine Learning)/Analysis/XGB Results/Complete Cases Analysis/Confusion Matrix", filename="Confusion Matrix .75.png", height=5, width=6)
+  
+  #Confusion table for .5 matrix
+  TPR_TF=XGB_FPR_CM_TF$table[1]
+  FNR_TF=XGB_FPR_CM_TF$table[2]
+  FPR_TF=XGB_FPR_CM_TF$table[3]
+  TNR_TF=XGB_FPR_CM_TF$table[4]
+  
+  Truth_Class_fct=factor(c("Mimic", "Mimic", "Stroke", "Stroke"))
+  Pred_Class=factor(c("Mimic", "Stroke", "Mimic", "Stroke"))
+  Frequency_TF=c(FNR_TF, TPR_TF, TNR_TF, FPR_TF)
+  
+  CM_FPR_DF_TF=data.frame(Truth_Class_fct, Pred_Class, Frequency_TF)
+  
+ Correct_5=ifelse(CM_FPR_DF_TF$Truth_Class_fct!=CM_FPR_DF_TF$Pred_Class, "Correct", "Incorrect")
+
+  
+  #Confusion matrix for .5
+  Conf_Mat_FPR_TF=ggplot(CM_FPR_DF_TF, aes(x=Truth_Class_fct, y=Pred_Class))+
+    geom_tile(aes(fill=Correct_5), colour="white")+
+    geom_text(aes(label=sprintf("%1.0f", Frequency_TF)), vjust=1, color="White", fontface="bold", size=12)+
+    scale_x_discrete(position="top")+
+    scale_y_discrete(labels=c("Stroke", "Mimic"))+
+    scale_fill_manual(values=c(Incorrect="#EC008C", Correct="#80BC00"), name="Classification")+
+    labs(x="True Class", y="Predicted Class", 
+         title="Evaluation matrix depicting the accuracy of Stroke versus 
+         Stroke Mimic classification (Threshold >0.5 = Mimic)")+
+    theme_light()+
+    theme(legend.text = element_text(face = "bold", size=14),
+          legend.title = element_text(face="bold", size=14),
+          plot.title = element_text(face="bold", size=14, hjust=0.5),
+          axis.text = element_text(face="bold", size=14),
+          axis.title = element_text(face="bold", size=14)
+    )
+  Conf_Mat_FPR_TF
+  
+      ggsave(plot=Conf_Mat_FPR_TF, path="H:/Documents/PhD/1. Retrospective Study (Machine Learning)/Analysis/XGB Results/Complete Cases Analysis/Confusion Matrix", filename="Confusion Matrix .70.png", height=5, width=6)
+  
+  #Confusion table for .4 matrix
+  TPR_Max=XGB_FPR_CM_max$table[1]
+  FNR_Max=XGB_FPR_CM_max$table[2]
+  FPR_Max=XGB_FPR_CM_max$table[3]
+  TNR_Max=XGB_FPR_CM_max$table[4]
+  
+  Truth_Class_fct=factor(c("Mimic", "Mimic", "Stroke", "Stroke"))
+  Pred_Class=factor(c("Mimic", "Stroke", "Mimic", "Stroke"))
+  Frequency_max=c(FNR_Max, TPR_Max, TNR_Max, FPR_Max)
+  
+  CM_FPR_DF_max=data.frame(Truth_Class_fct, Pred_Class, Frequency_max)
+  
+  Correct_4=ifelse(CM_FPR_DF_max$Truth_Class_fct!=CM_FPR_DF_max$Pred_Class, "Correct", "Incorrect")
+
+  #Confusion matrix for .4
+  Conf_Mat_FPR_max=ggplot(CM_FPR_DF_max, aes(x=Truth_Class_fct, y=Pred_Class))+
+    geom_tile(aes(fill=Correct_4), colour="white")+
+    geom_text(aes(label=sprintf("%1.0f", Frequency_max)), vjust=1, color="White", fontface="bold", size=12)+
+    scale_x_discrete(position="top")+
+    scale_y_discrete(labels=c("Stroke", "Mimic"))+
+    scale_fill_manual(values=c(Incorrect="#EC008C", Correct="#80BC00"), name="Classification")+
+    labs(x="True Class", y="Predicted Class", 
+         title="Evaluation matrix depicting the accuracy of Stroke versus 
+         Stroke Mimic classification (Threshold >.4 = Mimic)")+
+    theme_light()+
+    theme(legend.text = element_text(face = "bold"),
+          legend.title = element_text(face="bold"),
+          plot.title = element_text(face="bold", size=10, hjust=0.5),
+          axis.text = element_text(face="bold", size=10),
+          axis.title = element_text(face="bold", size=10)
+    )
+  Conf_Mat_FPR_max
+  
+  ggsave(plot=Conf_Mat_FPR_max, path="H:/Documents/PhD/1. Retrospective Study (Machine Learning)/Analysis/XGB Results/Complete Cases Analysis/Confusion Matrix", filename="Confusion Matrix .65.png", height=5, width=6)
+  
+  #Confusion table for .3 matrix
+  TPR_Mid=XGB_FPR_CM_mid$table[1]
+  FNR_Mid=XGB_FPR_CM_mid$table[2]
+  FPR_Mid=XGB_FPR_CM_mid$table[3]
+  TNR_Mid=XGB_FPR_CM_mid$table[4]
+  
+  Truth_Class_fct=factor(c("Mimic", "Mimic", "Stroke", "Stroke"))
+  Pred_Class=factor(c("Mimic", "Stroke", "Mimic", "Stroke"))
+  Frequency_mid=c(FNR_Mid, TPR_Mid, TNR_Mid, FPR_Mid)
+  
+  CM_FPR_DF_mid=data.frame(Truth_Class_fct, Pred_Class, Frequency_mid)
+  
+Correct_3=ifelse(CM_FPR_DF_mid$Truth_Class_fct!=CM_FPR_DF_mid$Pred_Class, "Correct", "Incorrect")
+
+  
+  #Confusion matrix for .3
+  Conf_Mat_FPR_mid=ggplot(CM_FPR_DF_mid, aes(x=Truth_Class_fct, y=Pred_Class))+
+    geom_tile(aes(fill=Correct_3), colour="white")+
+    geom_text(aes(label=sprintf("%1.0f", Frequency_mid)), vjust=1, color="White", fontface="bold", size=12)+
+    scale_x_discrete(position="top")+
+    scale_y_discrete(labels=c("Stroke", "Mimic"))+
+    scale_fill_manual(values=c(Incorrect="#EC008C", Correct="#80BC00"), name="Classification")+
+    labs(x="True Class", y="Predicted Class", 
+         title="Evaluation matrix depicting the accuracy of Stroke versus 
+         Stroke Mimic classification (Threshold >.3 = Mimic)")+
+    theme_light()+
+    theme(legend.text = element_text(face = "bold"),
+          legend.title = element_text(face="bold"),
+          plot.title = element_text(face="bold", size=10, hjust=0.5),
+          axis.text = element_text(face="bold", size=10),
+          axis.title = element_text(face="bold", size=10)
+    )
+  Conf_Mat_FPR_mid
+  
+      ggsave(plot=Conf_Mat_FPR_mid, path="H:/Documents/PhD/1. Retrospective Study (Machine Learning)/Analysis/XGB Results/Complete Cases Analysis/Confusion Matrix", filename="Confusion Matrix .62.png", height=5, width=6)
+  
+  #Confusion table for .2 matrix
+  TPR_Min=XGB_FPR_CM_min$table[1]
+  FNR_Min=XGB_FPR_CM_min$table[2]
+  FPR_Min=XGB_FPR_CM_min$table[3]
+  TNR_Min=XGB_FPR_CM_min$table[4]
+  
+  Truth_Class_fct=factor(c("Mimic", "Mimic", "Stroke", "Stroke"))
+  Pred_Class=factor(c("Mimic", "Stroke", "Mimic", "Stroke"))
+  Frequency_min=c(FNR_Min, TPR_Min, TNR_Min, FPR_Min)
+  
+  CM_FPR_DF_min=data.frame(Truth_Class_fct, Pred_Class, Frequency_min)
+  
+  Correct_2=ifelse(CM_FPR_DF_min$Truth_Class_fct!=CM_FPR_DF_min$Pred_Class, "Correct", "Incorrect")
+
+  #Confusion matrix for .2
+  Conf_Mat_FPR_min=ggplot(CM_FPR_DF_min, aes(x=Truth_Class_fct, y=Pred_Class))+
+    geom_tile(aes(fill=Correct_2), colour="white")+
+    geom_text(aes(label=sprintf("%1.0f", Frequency_min)), vjust=1, color="White", fontface="bold", size=12)+
+    scale_x_discrete(position="top")+
+    scale_y_discrete(labels=c("Stroke", "Mimic"))+
+    scale_fill_manual(values=c(Incorrect="#EC008C", Correct="#80BC00"), name="Classification")+
+    labs(x="True Class", y="Predicted Class", 
+         title="Evaluation matrix depicting the accuracy of Stroke versus 
+         Stroke Mimic classification (Threshold >.2 = Mimic)")+
+    theme_light()+
+    theme(legend.text = element_text(face = "bold"),
+          legend.title = element_text(face="bold"),
+          plot.title = element_text(face="bold", size=10, hjust=0.5),
+          axis.text = element_text(face="bold", size=10),
+          axis.title = element_text(face="bold", size=10)
+    )
+  Conf_Mat_FPR_min
+  
+      ggsave(plot=Conf_Mat_FPR_min, path="H:/Documents/PhD/1. Retrospective Study (Machine Learning)/Analysis/XGB Results/Complete Cases Analysis/Confusion Matrix", filename="Confusion Matrix .60.png", height=5, width=6)
+      
+      ##.1 conf mat prep
+  
+  TPR=XGB_CM_Def$table[1]
+  FNR=XGB_CM_Def$table[2]
+  FPR=XGB_CM_Def$table[3]
+  TNR=XGB_CM_Def$table[4]
+  
+  Truth_Class_fct=factor(c("Mimic", "Mimic", "Stroke", "Stroke"))
+  Pred_Class=factor(c("Mimic", "Stroke", "Mimic", "Stroke"))
+  Frequency=c(FNR, TPR, TNR, FPR)
+  
+  CM_DF=data.frame(Truth_Class_fct, Pred_Class, Frequency)
+  
+ #had to label the wrong way round to make it display correctly in the plot 
+     Correct_1=ifelse(CM_DF$Truth_Class_fct!=CM_DF$Pred_Class, "Correct", "Incorrect")
+  
+  #####.1 confusion matrix#############
+  
+  Conf_Mat_gg=ggplot(CM_DF, aes(x=Truth_Class_fct, y=Pred_Class))+
+    geom_tile(aes(fill=Correct_1), colour="white")+
+    geom_text(aes(label=sprintf("%1.0f", Frequency)), vjust=1, color="White", fontface="bold", size=12)+
+    scale_x_discrete(position="top")+
+    scale_y_discrete(labels=c("Stroke", "Mimic"))+
+    scale_fill_manual(values=c(Incorrect="#EC008C", Correct="#80BC00"), name="Classification")+
+    labs(x="True Class", y="Predicted Class",
+         title="Evaluation matrix depicting the accuracy of Stroke versus 
+         Stroke Mimic Classification (Default Threshold .1 (>10% = Mimic)")+
+    theme_light()+
+    theme(legend.text = element_text(face = "bold", size=14),
+          legend.title = element_text(face="bold", size=14),
+          plot.title = element_text(face="bold", size=14, hjust=0.5),
+          axis.text = element_text(face="bold", size=14),
+          axis.title = element_text(face="bold", size=14)
+    ) 
+  Conf_Mat_gg
+  
+  
+  #Confusion table for youden matrix
+  TPR_Youd=XGB_CM_Youd$table[1]
+  FNR_Youd=XGB_CM_Youd$table[2]
+  FPR_Youd=XGB_CM_Youd$table[3]
+  TNR_Youd=XGB_CM_Youd$table[4]
+  
+  Truth_Class_fct=factor(c("Mimic", "Mimic", "Stroke", "Stroke"))
+  Pred_Class=factor(c("Mimic", "Stroke", "Mimic", "Stroke"))
+  Frequency_Youd=c(FNR_Youd, TPR_Youd, TNR_Youd, FPR_Youd)
+  
+  CM_DF_Youd=data.frame(Truth_Class_fct, Pred_Class, Frequency_Youd)
+  
+  Correct_Y=ifelse(CM_DF_Youd$Truth_Class_fct!=CM_DF_Youd$Pred_Class, "Correct", "Incorrect")
+
+  
+  #Confusion matrix for youden
+  Conf_Mat_Youden=ggplot(CM_DF_Youd, aes(x=Truth_Class_fct, y=Pred_Class))+
+    geom_tile(aes(fill=Correct_Y), colour="white")+
+    geom_text(aes(label=sprintf("%1.0f", Frequency_Youd)), vjust=1, color="White", fontface="bold", size=12)+
+    scale_x_discrete(position="top")+
+    scale_y_discrete(labels=c("Stroke", "Mimic"))+
+    scale_fill_manual(values=c(Incorrect="#EC008C", Correct="#80BC00"), name="Classification")+
+    labs(x="True Class", y="Predicted Class", 
+         title="Evaluation matrix depicting the accuracy of Stroke versus 
+         Stroke Mimic classification (Threshold >.41 = Mimic)")+
+    theme_light()+
+    theme(legend.text = element_text(face = "bold"),
+          legend.title = element_text(face="bold"),
+          plot.title = element_text(face="bold", size=10, hjust=0.5),
+          axis.text = element_text(face="bold", size=10),
+          axis.title = element_text(face="bold", size=10)
+    )
+  Conf_Mat_Youden
+  
+      ggsave(plot=Conf_Mat_Youden, path="H:/Documents/PhD/1. Retrospective Study (Machine Learning)/Analysis/XGB Results/Complete Cases Analysis/Confusion Matrix", filename="Confusion Matrix Youden.png", height=5, width=6)
+  
+```
+
+#####Variable Importance Scores######
+```{r}
+
+######### Numeric Variable Importance Scores #######
+
+VIP_Num=vi(xgb_model)
+
+#Features which arent important (no Gain to the model) are automatically dropped from the model
+  
+  All_Features=as.data.frame(xgb_model$feature_names)
+  colnames(All_Features)[1]="Feature"
+  Important_features=as.data.frame(VIP_Num$Variable)
+  colnames(Important_features)[1]="Feature"
+  Dropped_vars=compare_df(Important_features, All_Features, c("Feature"))
+  Dropped_vars=Dropped_vars$comparison_df
+  
+  sprintf("Variable dropped from the variable importance plot: %s", Dropped_vars$Feature)
+  
+  #Importance of first 6 features
+sum(VIP_Num$Importance[1:6])
+
+sprintf("%s=%s%%,%s=%s%%,%s=%s%%,%s=%s%%,%s=%s%%,%s=%s%%,%s=%s%%,%s=%s%%,%s=%s%%,%s=%s%%,%s=%s%%,%s=%s%%,%s=%s%%", VIP_Num$Variable[1], round(VIP_Num$Importance[1]*100, 0), VIP_Num$Variable[2], round(VIP_Num$Importance[2]*100, 0), VIP_Num$Variable[3], round(VIP_Num$Importance[3]*100, 0), VIP_Num$Variable[4], round(VIP_Num$Importance[4]*100, 0), VIP_Num$Variable[5], round(VIP_Num$Importance[5]*100, 0), VIP_Num$Variable[6], round(VIP_Num$Importance[6]*100, 0), VIP_Num$Variable[7], round(VIP_Num$Importance[7]*100, 0), VIP_Num$Variable[8], round(VIP_Num$Importance[8]*100, 0), VIP_Num$Variable[9], round(VIP_Num$Importance[9]*100, 0), VIP_Num$Variable[10], round(VIP_Num$Importance[10]*100, 0), VIP_Num$Variable[11], round(VIP_Num$Importance[11]*100, 0), VIP_Num$Variable[12], round(VIP_Num$Importance[12]*100, 0), VIP_Num$Variable[13], round(VIP_Num$Importance[13]*100, 0))
+
+###### Variable Importance Plots ########  
+
+###can plot according to other importance measures (cover, frequency)
+
+
+######Top 10######
+Purp_palette=colorRampPalette(colors=c("#E70329", "#E7035A", "#E6049B", "#E703C6", "#E604EB", "#B603E7", "#9003E7", "#6401E9", "#3D00EA"))
+
+VIP_col_10=xgb_model%>%
+  vip(geom = "col", aesthetics = list(fill=Purp_palette(10)))+
+  labs(title="Variables with the greatest contribution to the Stroke Mimic prediction model")+
+  theme_light()+
+  theme(plot.title=element_text(face="bold", hjust=.5, size=16),
+        axis.title=element_text(face="bold", size=16),
+        axis.text=element_text(face="bold", size=16)
+        )
+  VIP_col_10
+  
+
+####Variable importance of all features########  
+
+  VIP_col_all=VIP_Num%>%
+    mutate(name= fct_reorder(factor(gsub("_", " ", Variable)), Importance))%>% 
+    ggplot( aes(x=name, y=Importance*100, fill=name))+
+    geom_col()+
+    labs(title="Variable contribution to the stroke mimic prediction model accuracy", y="Importance (gain %)", x="Variable")+
+        ylim(0, 15)+
+    scale_y_continuous(breaks=c(0, 2.5, 5, 7.5, 10, 12.5, 15))+
+    scale_fill_manual(values=c("#0667A6", "#0663A6","#0657A6", "#0653A6", "#0647A6", "#0643A6", "#0637A6","#0633A6",  "#0627A6","#0621A6", "#0619A6", "#0615A6","#050DA7", "#0E06A6",  "#0505A7", "#1106A6", "#1D06A6","#2806A6", "#3406A6", "#3F05A7", "#4A05A7","#5205A7","#5605A7","#5E05A7", "#6906A6","#7406A6", "#8006A6","#8406A6", "#8B06A6", "#9706A6", "#A606AA",  "#A705A7","#A8049C","#A80491","#A90385", "#A80471",  "#A80462", "#A80456", "#A90342","#AA023E", "#AA0236", "#AA021E", "#AA0206", "#AA020E"))+
+    coord_flip()+
+    theme_light()+
+    theme(plot.title=element_text(face="bold", hjust=.5, size=14),
+          axis.title=element_text(face="bold", size=14),
+          axis.text=element_text(face="bold", size=12),
+          legend.position= "none"
+          )
+  VIP_col_all
+  
+  #set_wd() 
+
+  ggsave(plot=VIP_col_all, path="H:/Documents/PhD/1. Retrospective Study (Machine Learning)/Analysis/XGB Results/Complete Cases Analysis/Variable Importance Plot", filename="Variable Importance Plot.png", height=8, width=11)
+
+
+```
+#####Make matrix to use for interactions and SHAP#####
+```{r}
+#make recipe to select predictors and make into matrix to put into shap prep 
+DX_rec=recipe(Diagnosis~., data=DX_Train)
+DX_prep=prep(DX_rec)
+DX_bake=bake(DX_prep, 
+             has_role("predictor"), 
+             new_data=NULL)
+
+X_train=bake(DX_prep, 
+            has_role("predictor"), 
+           new_data=NULL, 
+          composition="matrix")
+```
+
+
+#####Feature Interactions#####
+```{r}
+#Plot feature interaction plot (interactions is default so same as below; gain is default but other measures available)
+XG_IntsCC=EIX::interactions(xgb_model, X_train)
+FT_Ints_CCdf=plot(XG_IntsCC)
+  FT_Ints_CCdf=data.frame(FT_Ints_CCdf$data)
+
+  FT_Ints_CCdf$Parent=factor(gsub("_", " ", FT_Ints_CCdf$Parent))
+  FT_Ints_CCdf$Child=factor(gsub("_", " ", FT_Ints_CCdf$Child))
+FT_IntsCC=ggplot(FT_Ints_CCdf, aes(Child, Parent, fill=breaks))+
+  geom_tile(show.legend=TRUE)+
+  labs(title="Feature Interactions")+
+  scale_fill_manual(values=c("#2717F5", "#B603E7", "#E703C6", "#FD0113"), labels=c("Very Low", "Low", "Medium", "High"), name="Sum Gain", drop=FALSE)+
+  theme(axis.text.x = element_text(vjust=0.5, angle=90),
+        axis.text = element_text(color="Black"),
+        axis.title = element_text(color="Black"),
+        plot.title = element_text(color="Black", hjust=.5),
+        legend.position = "top"
+  )
+FT_IntsCC
+
+ggsave(plot=FT_IntsCC, path="H:/Documents/PhD/1. Retrospective Study (Machine Learning)/Analysis/XGB Results/Complete Cases Analysis/Interactions", filename="Sum Gain Interactons.png", height=8, width=8)
+
+SumGain=sum(FT_Ints_CCdf$sumGain)
+FT_Ints_CCdfSG=FT_Ints_CCdf
+FT_Ints_CCdfSG$SumGainPerc=(FT_Ints_CCdfSG$sumGain/SumGain)*100
+
+FT_Ints_CCdfSG$LowSumGainPerc=ifelse(FT_Ints_CCdfSG$breaks=="[27.27,54.54)", (FT_Ints_CCdfSG$sumGain/SumGain)*100, 0)
+sum(FT_Ints_CCdfSG$LowSumGainPerc)
+count(FT_Ints_CCdfSG$breaks=="[27.27,54.54)")
+
+FT_Ints_CCdfSG$VLowSumGainPerc=ifelse(FT_Ints_CCdfSG$breaks=="[0.3044,27.27)", (FT_Ints_CCdfSG$sumGain/SumGain)*100, 0)
+sum(FT_Ints_CCdfSG$VLowSumGainPerc)
+count(FT_Ints_CCdfSG$breaks=="[0.3044,27.27)")
+
+
+```
+
+#EIX Radar
+```{r}
+Radar_importance=EIX::importance(xgb_model, X_train, option="both")
+
+Radar_var_impCC=EIX::importance(xgb_model, X_train, option="variables")
+Radar_var_impCC
+
+Radar_plotCC=plot(Radar_var_impCC, radar=TRUE)+
+  labs(title="Radar plot depicting various measures of feature importance")+
+  theme(plot.title=element_text(size=12),
+        axis.text = element_text(size=12, face="bold"),
+        legend.text = element_text(size=12, face="bold"))
+Radar_plotCC
+
+ggsave(plot=Radar_plotCC, path="H:/Documents/PhD/1. Retrospective Study (Machine Learning)/Analysis/XGB Results/Complete Cases Analysis/Interactions", filename="VI Importance.png", height=8, width=8)
+
+Radar_int_impCC=EIX::importance(xgb_model, X_train, option="interactions")
+Radar_int_impCC
+
+Radarint_plotCC=plot(Radar_int_impCC, radar=TRUE)+
+  labs(title="Radar plot depicting various measures of feature importance 
+       according to variable interactions")+
+  theme(plot.title=element_text(size=12),
+        axis.text = element_text(size=12, face="bold"),
+        legend.text = element_text(size=12, face="bold"))
+Radarint_plotCC
+
+ggsave(plot=Radarint_plotCC, path="H:/Documents/PhD/1. Retrospective Study (Machine Learning)/Analysis/XGB Results/Complete Cases Analysis/Interactions", filename="VI Interactons.png", height=8, width=8)
+
+
+```
+
+#####SHAP values/Tornado plots########
+```{r}
+
+#SHAP = SHapley Additive exPlanations
+
+#calculate shap values for plot
+Shapvals=shap.prep(xgb_model, 
+                   X_train=X_train
+) 
+
+#Check mean scores 
+Shap_values=shap.values(xgb_model, X_train)
+Shap_values$mean_shap_score
+
+Shap_values$shap_score=Shap_values$shap_score%>%
+  select_all(~gsub("_", " ",.))
+
+
+#####Tornado plot/SHAP summary plot #####
+
+
+Shapvals$variable=fct_reorder(factor(gsub("_", " ", Shapvals$variable)), Shapvals$mean_value, .desc=TRUE)
+Shap_Plot=shap.plot.summary(Shapvals)+
+  labs(title="SHAP summary plot depicting the magnitude and direction of feature impact on mimic prediction 
+       (positive SHAP values on x were predictive of mimic, mean feature SHAP values are displayed on Y)")+
+  scale_y_continuous(breaks=c(-1, 0, 1), labels=c("-1 (Stroke)", "0 (Neither)", "1 (Mimic)"))+
+  scale_color_gradient(low="#2B1BFD", high="#FC1C21", breaks = c(0, 1), labels = c("Low/No/Male", 
+            "High/Yes/Female"))+
+  theme(plot.title=element_text(face="bold", size=8, hjust=.5),
+        axis.text.y = element_text(face="bold", size=8),
+        axis.text.x = element_text(face="bold", size=8),
+        axis.title.x = element_text(face="bold", size=8),
+        legend.text = element_text(face="bold", size=8),
+        legend.title = element_text(face="bold", size=8, vjust=.9)
+  )
+Shap_Plot
+
+#set_wd()
+
+ggsave(plot=Shap_Plot, path="H:/Documents/PhD/1. Retrospective Study (Machine Learning)/Analysis/XGB Results/Complete Cases Analysis/Shap Summary Plot", filename="Shap Summary Plot.png", height=8, width=8)
+
+```
+
+##### SHAP Dependence Plots #####
+```{r}
+
+#Dependence plot for top 25 individual variables - shows shape of relationship (not very useful for binary features)
+
+#loess for binary because not enough unique values for feature 
+
+#Arm Weakness
+Arm_Dep=shap.plot.dependence(Shapvals, 
+                     x="Arm Weakness", add_stat_cor=FALSE, smooth=FALSE)+
+  geom_smooth(color="red", method="loess")+
+  stat_cor(method="spearman", hjust=-1)+
+  scale_x_continuous(breaks=c(0, 1), label=c("No", "Yes"))+
+  labs(title="Distribution of SHAP values for Arm Weakness",
+       x="Arm Weakness", y="SHAP value for Arm Weakness")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5),
+        axis.text.x = element_text(face="bold", size=10)
+                                  )
+Arm_Dep
+
+#Systolic Blood Pressure
+SBP_Dep=shap.plot.dependence(Shapvals, 
+                     x="Systolic Blood Pressure mmHg", add_stat_cor=FALSE, smooth=FALSE)+
+  geom_smooth(color="red")+
+  stat_cor(method="spearman", hjust=-1)+
+  labs(title="Distribution of SHAP values for Systolic Blood Pressure",
+       x="Systolic Blood Pressure (mmHg)", y="SHAP value for Systolic Blood Pressure")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5)
+  )
+SBP_Dep
+
+#Age 
+Age_SPD=shap.plot.dependence(Shapvals, 
+                     x="Age in Years", add_stat_cor=FALSE, smooth=FALSE)+
+  geom_smooth(color="red")+
+  stat_cor(method="spearman", hjust=-1)+
+  labs(title="Distribution of SHAP values for Age",
+       x="Age in Years", y="SHAP value for Age in Years")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5)
+        )
+Age_SPD
+
+ggsave(plot=Age_SPD, path="H:/Documents/PhD/1. Retrospective Study (Machine Learning)/Analysis/XGB Results/Complete Cases Analysis/Dependency Plots/Univariate", filename="Age DP.png")
+
+#Speech Disturbance
+Speech_Dep=shap.plot.dependence(Shapvals, 
+                             x="Speech Disturbance", add_stat_cor=FALSE, smooth=FALSE)+
+  geom_smooth(color="red", method="loess")+
+  stat_cor(method="spearman", hjust=-1)+
+  scale_x_continuous(breaks=c(0, 1), label=c("No", "Yes"))+
+  labs(title="Distribution of SHAP values for Speech Disturbance",
+       x="Speech Disturbance", y="SHAP value for Speech Disturbance")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5),
+        axis.text.x = element_text(face="bold", size=10)
+  )
+Speech_Dep
+
+#History of Stroke
+Hx_Stroke_Dep=shap.plot.dependence(Shapvals, 
+                             x="History of Stroke",add_stat_cor=FALSE, smooth=FALSE)+
+  geom_smooth(color="red", method="loess")+
+  stat_cor(method="spearman", hjust=-1)+
+  scale_x_continuous(breaks=c(0, 1), label=c("No", "Yes"))+
+  labs(title="Distribution of SHAP values for History of Stroke",
+       x="History of Stroke", y="SHAP value for History of Stroke")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5),
+        axis.text.x = element_text(face="bold", size=10)
+  )
+Hx_Stroke_Dep
+
+#Temperature
+Temp_Dep=shap.plot.dependence(Shapvals, 
+                             x="Temperature Degrees C", add_stat_cor=FALSE, smooth=FALSE)+
+  geom_smooth(color="red")+
+  stat_cor(method="spearman", hjust=-1)+
+  labs(title="Distribution of SHAP values for Temperature",
+       x="Temperature (Degrees C)", y="SHAP value for Temperature")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5)
+  )
+Temp_Dep
+
+#Gender
+Gender_Dep=shap.plot.dependence(Shapvals, 
+                             x="Gender", add_stat_cor=FALSE, smooth=FALSE)+
+  geom_smooth(color="red", method="loess")+
+  stat_cor(method="spearman", hjust=-1)+
+  scale_x_continuous(breaks=c(1, 2), label=c("Male", "Female"))+
+  labs(title="Distribution of SHAP values for Gender",
+       x="Gender", y="SHAP value for Gender")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5),
+        axis.text.x = element_text(face="bold", size=10)
+  )
+Gender_Dep
+
+#Headache
+HA_Dep=shap.plot.dependence(Shapvals, 
+                             x="Headache", add_stat_cor=FALSE, smooth=FALSE)+
+  geom_smooth(color="red", method="loess")+
+  stat_cor(method="spearman", hjust=-1)+
+  scale_x_continuous(breaks=c(1, 2), label=c("No", "Yes"))+
+  labs(title="Distribution of SHAP values for Headache",
+       x="Headache", y="SHAP value for Headache")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5),
+        axis.text.x = element_text(face="bold", size=10)
+  )
+HA_Dep
+
+#Irregular Pulse
+IP_Dep=shap.plot.dependence(Shapvals, 
+                     x="Irregular Pulse", add_stat_cor=FALSE, smooth=FALSE)+
+  geom_smooth(color="red", method="loess")+
+  stat_cor(method="spearman", hjust=-1)+
+  labs(title="Distribution of SHAP values for Irregular Pulse",
+       x="Irregular Pulse", y="SHAP value for Irregular Pulse")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5)
+  )
+IP_Dep
+
+#Glucose
+BM_Dep=shap.plot.dependence(Shapvals, 
+                     x="Capillary Blood Glucose mmol L", add_stat_cor=FALSE, smooth=FALSE)+
+  geom_smooth(color="red")+
+  stat_cor(method="spearman", hjust=-1)+
+  labs(title="Distribution of SHAP values for Glucose",
+       x="Glucose (mmol/L)", y="SHAP values for Glucose")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5)
+  )
+BM_Dep
+
+#Facial Weakness
+Face_Dep=shap.plot.dependence(Shapvals, 
+                             x="Facial Droop or Weakness", add_stat_cor=FALSE, smooth=FALSE)+
+  geom_smooth(color="red", method="loess")+
+  stat_cor(method="spearman", hjust=-1)+
+  scale_x_continuous(breaks=c(1, 2), label=c("No", "Yes"))+
+  labs(title="Distribution of SHAP values for Facial Droop/Weakness",
+       x="Facial Droop/Weakness", y="SHAP value for Facial Droop/Weakness")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5),
+        axis.text.x = element_text(face="bold", size=10)
+  )
+Face_Dep
+
+#General Weakness
+GW_Dep=shap.plot.dependence(Shapvals, 
+                             x="Symptom of General Weakness", add_stat_cor=FALSE, smooth=FALSE)+
+  geom_smooth(color="red", method="loess")+
+  stat_cor(method="spearman", hjust=-1)+
+  scale_x_continuous(breaks=c(1, 2), label=c("No", "Yes"))+
+  labs(title="Distribution of SHAP values for General Weakness",
+       x="General Weakness", y="SHAP value for General Weakness")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5),
+        axis.text.x = element_text(face="bold", size=10)
+  )
+GW_Dep
+
+#Respiratory Rate
+Resp_Dep=shap.plot.dependence(Shapvals, 
+                            x="Respiratory Rate BPM", add_stat_cor=FALSE, smooth=FALSE)+
+  geom_smooth(color="red")+
+  stat_cor(method="spearman", hjust=-1)+
+  labs(title="Distribution of SHAP values for Respiratory Rate",
+       x="Respiratory Rate (BPM)", y="SHAP values for Respiratory Rate")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5)
+  )
+Resp_Dep
+
+#Confusion
+Conf_Dep=shap.plot.dependence(Shapvals, 
+                             x="Symptom of Confusion", add_stat_cor=FALSE, smooth=FALSE)+
+  geom_smooth(color="red", method="loess")+
+  stat_cor(method="spearman", hjust=-1)+
+  scale_x_continuous(breaks=c(1, 2), label=c("No", "Yes"))+
+  labs(title="Distribution of SHAP values for Confusion",
+       x="Confusion", y="SHAP value for Confusion")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5),
+        axis.text.x = element_text(face="bold", size=10)
+  )
+Conf_Dep
+
+#Heart Rate
+HR_Dep=shap.plot.dependence(Shapvals, 
+                              x="Heart Rate BPM", add_stat_cor=FALSE, smooth=FALSE)+
+  geom_smooth(color="red")+
+  stat_cor(method="spearman", hjust=-1)+
+  labs(title="Distribution of SHAP values for Heart Rate",
+       x="Heart Rate", y="SHAP value for Heart Rate")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5)
+  )
+HR_Dep
+
+#Seizures
+Seiz_Dep=shap.plot.dependence(Shapvals, 
+                             x="Seizures", add_stat_cor=FALSE, smooth=FALSE)+
+  geom_smooth(color="red", method="loess")+
+  stat_cor(method="spearman", hjust=-1)+
+  scale_x_continuous(breaks=c(1, 2), label=c("No", "Yes"))+
+  labs(title="Distribution of SHAP values for Seizures",
+       x="Seizures", y="SHAP value for Seizures")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5),
+        axis.text.x = element_text(face="bold", size=10)
+  )
+Seiz_Dep
+
+#History of Hypertension
+HTN_Dep=shap.plot.dependence(Shapvals, 
+                             x="History of Hypertension", add_stat_cor=FALSE, smooth=FALSE)+
+  geom_smooth(color="red", method="loess")+
+  stat_cor(method="spearman", hjust=-1)+
+  scale_x_continuous(breaks=c(1, 2), label=c("No", "Yes"))+
+  labs(title="Distribution of SHAP values for Hypertension",
+       x="Hypertension", y="SHAP value for Hypertension")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5),
+        axis.text.x = element_text(face="bold", size=10)
+  )
+HTN_Dep
+
+#Diastolic Blood Pressure
+DBP_Dep=shap.plot.dependence(Shapvals, 
+                     x="Diastolic Blood Pressure mmHg", add_stat_cor=FALSE, smooth=FALSE)+
+  geom_smooth(color="red")+
+  stat_cor(method="spearman", hjust=-1)+
+  labs(title="Distribution of SHAP values for Diastolic Blood Pressure",
+       x="Diastolic Blood Pressure (mmHg)", y="SHAP value for Diastolic Blood Pressure")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5)
+  )
+DBP_Dep
+
+#Pain
+Pain_Dep=shap.plot.dependence(Shapvals, 
+                     x="Pain Score Max 10", add_stat_cor=FALSE, smooth=FALSE)+
+  geom_smooth(color="red")+
+  stat_cor(method="spearman", hjust=-1)+
+  labs(title="Distribution of SHAP values for Pain (/10)",
+       x="Pain (/10)", y="SHAP value for Pain")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5)
+  )
+Pain_Dep
+
+#GCS
+DBP_Dep=shap.plot.dependence(Shapvals, 
+                     x="Diastolic Blood Pressure mmHg", add_stat_cor=FALSE, smooth=FALSE)+
+  geom_smooth(color="red")+
+  stat_cor(method="spearman", hjust=-1)+
+  labs(title="Distribution of SHAP values for Diastolic Blood Pressure",
+       x="Diastolic Blood Pressure (mmHg)", y="SHAP value for Diastolic Blood Pressure")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5)
+  )
+DBP_Dep
+
+#History of TIA
+TIA_Dep=shap.plot.dependence(Shapvals, 
+                             x="History of TIA", add_stat_cor=FALSE, smooth=FALSE)+
+  geom_smooth(color="red", method="loess")+
+  stat_cor(method="spearman", hjust=-1)+
+  scale_x_continuous(breaks=c(1, 2), label=c("No", "Yes"))+
+  labs(title="Distribution of SHAP values for TIA",
+       x="TIA", y="SHAP value for TIA")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5),
+        axis.text.x = element_text(face="bold", size=10)
+  )
+TIA_Dep
+
+#Unconsciousness
+Unc_Dep=shap.plot.dependence(Shapvals, 
+                             x="Unconsciousness", add_stat_cor=FALSE, smooth=FALSE)+
+  geom_smooth(color="red", method="loess")+
+  stat_cor(method="spearman", hjust=-1)+
+  scale_x_continuous(breaks=c(1, 2), label=c("No", "Yes"))+
+  labs(title="Distribution of SHAP values for Unconsciousness",
+       x="Unconsciousness", y="SHAP value for Unconsciousness")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5),
+        axis.text.x = element_text(face="bold", size=10)
+  )
+Unc_Dep
+
+#Peripheral Oxygen Saturation
+POS_Dep=shap.plot.dependence(Shapvals, 
+                            x="Peripheral Oxygen Saturation Percent", add_stat_cor=FALSE, smooth=FALSE)+
+  geom_smooth(color="red")+
+  stat_cor(method="spearman", hjust=-1)+
+  labs(title="Distribution of SHAP values for Peripheral Oxygen Saturation",
+       x="Peripheral Oxygen Saturation (%)", y="SHAP value for Peripheral Oxygen Saturation")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5)
+  )
+POS_Dep
+
+#Atrial Fibrillation
+AF_Dep=shap.plot.dependence(Shapvals, 
+                             x="History or Presence of Atrial Fibrillatin", add_stat_cor=FALSE, smooth=FALSE)+
+  geom_smooth(color="red", method="loess")+
+  stat_cor(method="spearman", hjust=-1)+
+  scale_x_continuous(breaks=c(1, 2), label=c("No", "Yes"))+
+  labs(title="Distribution of SHAP values for Atrial Fibrillation",
+       x="Atrial Fibrillation", y="SHAP value for Atrial Fibrillation")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5),
+        axis.text.x = element_text(face="bold", size=10)
+  )
+AF_Dep
+
+#Tremors
+Trem_Dep=shap.plot.dependence(Shapvals, 
+                             x="Tremors", add_stat_cor=FALSE, smooth=FALSE)+
+  geom_smooth(color="red", method="loess")+
+  stat_cor(method="spearman", hjust=-1)+
+  scale_x_continuous(breaks=c(1, 2), label=c("No", "Yes"))+
+  labs(title="Distribution of SHAP values for Tremors",
+       x="Tremors", y="SHAP value for Tremors")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5),
+        axis.text.x = element_text(face="bold", size=10)
+  )
+Trem_Dep
+
+#Facet top 8 features
+#need to substitute the names for them to display
+names(Shap_values$mean_shap_score)=gsub("_", " ", names(Shap_values$mean_shap_score))
+
+dep_list = lapply(names(Shap_values$mean_shap_score)[c(2, 3, 6, 10, 13, 15, 18, 23)], shap.plot.dependence, 
+                  data_long = Shapvals)
+Dep_grid=gridExtra::grid.arrange(grobs = dep_list, ncol = 2)
+plot(Dep_grid)
+
+ggsave(plot=Dep_grid, path="H:/Documents/PhD/1. Retrospective Study (Machine Learning)/Analysis/XGB Results/Complete Cases Analysis/Dependency Plots/Univariate", filename="Dependency Facet.png", height=15, width=9)
+
+
+```
+
+##### SHAP Interactions #####
+```{r}
+
+ShapvizMx=X_train
+
+ShapvizObj=shapviz(xgb_model, X_pred=data.matrix(ShapvizMx), X=ShapvizMx)
+
+sv_importance(ShapvizObj) 
+
+ShapvizintObj=shapviz(xgb_model, X_pred=data.matrix(ShapvizMx), interactions=TRUE, X=ShapvizMx)
+
+Shap_ints=sv_interaction(ShapvizintObj, max_display = 8)+
+scale_color_gradient(low="#2B1BFD", high="#FC1C21", breaks = c(0, 1), name="Feature Value", labels = c("Low/No/Male", 
+            "High/Yes/Female"))
+Shap_ints
+
+ggsave(plot=Shap_ints, path="H:/Documents/PhD/1. Retrospective Study (Machine Learning)/Analysis/XGB Results/Complete Cases Analysis/Interactions", filename="SHAP Interactons.png", height=14, width=17)
+
+shapintdf=data.frame(ShapvizintObj$S_inter)
+
+#Interaction values for top interactions
+Shapintvals=data.frame(colMeans(shapintdf))
+Shapintvalssub=filter(Shapintvals, colMeans.shapintdf.!=0.000000e+00)
+colnames(Shapintvalssub)[1]="value"
+
+#Make the negative interactions positive + rescale *100000 to be able to see the order
+Shapintvalssub$valueS=Shapintvalssub$value*100000
+Shapintvalssub$valueS=gsub("-", "", Shapintvalssub$valueS)
+Shapintvalssub$valueS=as.numeric(Shapintvalssub$valueS)
+Shapintvalssub=data.frame(Shapintvalssub[order(Shapintvalssub$valueS,decreasing=TRUE),])
+Shapintvalssub$Probability=exp(Shapintvalssub$value)/(1+exp(Shapintvalssub$value))
+  
+view(Shapintvalssub)
+
+```
+
+#####SHAP Dependence Interactions######
+```{r}
+
+ShapintsCC=shap.prep.interaction(xgb_model, X_train)
+
+##Top continuous interactions
+#geom smooth for >1000 observations to use Gamma/REML (default) but can use loess with smooth=true
+#could use color_feature="auto" to get strongest interaction
+
+AgexArm=shap.plot.dependence(Shapvals, 
+                             x="Age_in_Years",
+                             color_feature = "Arm_Weakness",
+                             alpha=1,
+                             smooth = FALSE
+)+
+  geom_smooth(color="black")+
+  #scale_color_manual(name="Arm Weakness", values=c("#2B1BFD", "#FC1C21"))+
+    scale_color_gradient(name="Arm Weakness (No-Yes)",low="#2B1BFD", high="#FC1C21")+
+  labs(title="Distribution of SHAP values for Age 
+       and their interaction with Arm Weakness")+
+  xlab("Age in Years")+
+  ylab("SHAP value for Age in Years")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5))
+AgexArm
+
+#Age x Gender
+AgexGender=shap.plot.dependence(Shapvals, 
+                             x="Age_in_Years",
+                             color_feature = "Gender",
+                             alpha=1,
+                             smooth = FALSE
+)+
+  geom_smooth(color="black")+
+    scale_color_gradient(name="Gender (Male-Female)",low="#2B1BFD", high="#FC1C21")+
+  labs(title="Distribution of SHAP values for Age 
+       and their interaction with Gender")+
+  xlab("Age in Years")+
+  ylab("SHAP value for Age in Years")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5))
+AgexGender
+
+#Agexconfusion
+AgexConf=shap.plot.dependence(Shapvals, 
+                             x="Age_in_Years",
+                             color_feature = "Confusion",
+                             alpha=1,
+                             smooth = FALSE
+)+
+  geom_smooth(color="black")+
+    scale_color_gradient(name="Confusion (No-Yes)",low="#2B1BFD", high="#FC1C21")+
+  labs(title="Distribution of SHAP values for Age 
+       and their interaction with Confusion")+
+  xlab("Age in Years")+
+  ylab("SHAP value for Age in Years")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5))
+AgexConf
+
+#AgexHeadache
+AgexHA=shap.plot.dependence(Shapvals, 
+                             x="Age_in_Years",
+                             color_feature = "Headache",
+                             alpha=1,
+                             smooth = FALSE
+)+
+  geom_smooth(color="black")+
+    scale_color_gradient(name="Headache (No-Yes)",low="#2B1BFD", high="#FC1C21")+
+  labs(title="Distribution of SHAP values for Age 
+       and their interaction with Headache")+
+  xlab("Age in Years")+
+  ylab("SHAP value for Age in Years")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5))
+AgexHA
+
+TempxArmCC=shap.plot.dependence(Shapvals, 
+                             x="Temperature Degrees C",
+                             color_feature = "Arm Weakness",
+                             alpha=1,
+                             smooth = FALSE
+)+
+  geom_smooth(color="black")+
+  #scale_color_manual(name="Arm Weakness", values=c("#2B1BFD", "#FC1C21"))+
+    scale_color_gradient(name="Arm Weakness (No-Yes)",low="#2B1BFD", high="#FC1C21")+
+  labs(title="Distribution of SHAP values for Temperature 
+       and their interaction with Arm Weakness")+
+  xlab("Temperature (Degrees C)")+
+  ylab("SHAP value for Temperature")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5))
+TempxArmCC
+
+TempxSpeechCC=shap.plot.dependence(Shapvals, 
+                             x="Temperature Degrees C",
+                             color_feature = "Speech Disturbance",
+                             alpha=1,
+                             smooth = FALSE
+)+
+  geom_smooth(color="black")+
+  #scale_color_manual(name="Arm Weakness", values=c("#2B1BFD", "#FC1C21"))+
+    scale_color_gradient(name="Speech Disturbance",low="#2B1BFD", high="#FC1C21")+
+  labs(title="Distribution of SHAP values for Temperature 
+       and their interaction with Speech Disturbance")+
+  xlab("Temperature (Degrees C)")+
+  ylab("SHAP value for Temperature")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5))
+TempxSpeechCC
+
+#Temp x GCS
+TempxGCS=shap.plot.dependence(Shapvals, 
+                             x="Temperature_Degrees_C",
+                             color_feature = "Glasgow_Coma_Scale_max_15",
+                             alpha=1,
+                             smooth = FALSE
+)+
+  geom_smooth(color="black")+
+    scale_color_gradient(name="Glasgow Coma Scale (/15)",low="#2B1BFD", high="#FC1C21")+
+  labs(title="Distribution of SHAP values for Temperature 
+       and their interaction with Glasgow Coma Scale (/15)")+
+  xlab("Temperature (Degrees C)")+
+  ylab("SHAP value for Temperature")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5))
+TempxGCS
+
+#Arm and GCS
+ArmxGCS=shap.plot.dependence(Shapvals, 
+                             x="Glasgow_Coma_Scale_max_15",
+                             color_feature = "Arm_Weakness",
+                             alpha=1,
+                             smooth = FALSE
+)+
+  geom_smooth(color="black", method="loess")+
+  #scale_color_manual(name="Arm Weakness", values=c("#2B1BFD", "#FC1C21"))+
+    scale_color_gradient(name="Speech Disturbance",low="#2B1BFD", high="#FC1C21")+
+  labs(title="Distribution of SHAP values for Temperature 
+       and their interaction with Speech Disturbance")+
+  xlab("Temperature (Degrees C)")+
+  ylab("SHAP value for Temperature")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5))
+ArmxGCS
+
+#DBP x SBP
+DBPxSBP=shap.plot.dependence(Shapvals, 
+                             x="Diastolic_Blood_Pressure_mmHg",
+                             color_feature = "Systolic_Blood_Pressure_mmHg",
+                             alpha=1,
+                             smooth = FALSE
+)+
+  geom_smooth(color="black")+
+  scale_color_gradient(name="Systolic Blood Pressure (mmHg) (Feature value)",low="#2B1BFD", high="#FC1C21")+
+  labs(title="Distribution of SHAP values for Diastolic Blood Pressure 
+       and their interaction with Systolic Blood Pressure")+
+  xlab("Diastolic Blood Pressure (mmHg)")+
+  ylab("SHAP value for Diastolic Blood Pressure (mmHg)")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5))
+DBPxSBP
+
+#SBP X DBP
+SBPxDBP=shap.plot.dependence(Shapvals, 
+                             x="Systolic_Blood_Pressure_mmHg",
+                             color_feature = "Diastolic_Blood_Pressure_mmHg",
+                             smooth=FALSE
+                             )+
+  geom_smooth(color="black")+
+  scale_color_gradient(name="Diastolic Blood Pressure (mmHg) (Feature value)",low="#2B1BFD", high="#FC1C21")+
+  xlab("Systolic Blood Pressure (mmHg)")+
+  ylab("SHAP value for Systolic Blood Pressure (mmHg)")+
+  labs(title="Distribution of SHAP values for Systolic Blood Pressure 
+       and their interaction with Diastolic Blood Pressure (mmHg)")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5))
+SBPxDBP
+
+#Age and SBP
+AgexSBP=shap.plot.dependence(Shapvals, 
+                             x="Age in Years",
+                             color_feature = "Systolic Blood Pressure mmHg",
+                             alpha=1,
+                             smooth = FALSE
+)+
+  geom_smooth(color="black")+
+  scale_color_gradient(name="Systolic Blood Pressure (mmHg) (Feature value)",low="#2B1BFD", high="#FC1C21")+
+  labs(title="Distribution of SHAP values for Age 
+       and their interaction with Systolic Blood Pressure")+
+  xlab("Age in Years")+
+  ylab("SHAP value for Age in Years")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5))
+AgexSBP
+
+SBPxAge=shap.plot.dependence(Shapvals, 
+                             x="Systolic Blood Pressure mmHg",
+                             color_feature = "Age in Years",
+                             smooth=FALSE
+                             )+
+  geom_smooth(color="black")+
+  scale_color_gradient(name="Age in Years (Feature value)",low="#2B1BFD", high="#FC1C21")+
+  xlab("Systolic Blood Pressure (mmHg)")+
+  ylab("SHAP value for Systolic Blood Pressure (mmHg)")+
+  labs(title="Distribution of SHAP values for 
+       Systolic Blood Pressure and their interaction with Age")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5))
+SBPxAge
+
+#Age and Temp
+AgexTemp=shap.plot.dependence(Shapvals, 
+                     x="Age in Years",
+                     color_feature = "Temperature Degrees C",
+                     smooth=FALSE
+                     )+
+  geom_smooth(color="black")+
+  scale_color_gradient(name="Temperature (Degrees C) (Feature value)",low="#2B1BFD", high="#FC1C21")+
+  labs(title="Distribution of SHAP values for 
+       Age and their interaction with Temperature")+
+  xlab("Age in Years")+
+  ylab("SHAP value for Age in Years")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5))
+AgexTemp
+
+TempxAge=shap.plot.dependence(Shapvals, 
+                              x="Temperature Degrees C",
+                              color_feature = "Age in Years",
+                              smooth=FALSE
+                              )+  
+  geom_smooth(color="black")+
+  scale_color_gradient(name="Age in Years (Feature value)",low="#2B1BFD", high="#FC1C21")+
+  labs(title="Distribution of SHAP values for 
+       Temperature and their interaction with Age")+
+  xlab("Temperature (Degrees C)")+
+  ylab("SHAP value for Temperature (Degrees C)")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5))
+TempxAge
+
+#SBP and Temp
+SBPxTemp=shap.plot.dependence(Shapvals, 
+                     x="Systolic_Blood_Pressure_mmHg",
+                     color_feature = "Temperature_Degrees_C",
+                     smooth=FALSE
+                     )+
+  geom_smooth(color="black")+
+  scale_color_gradient(name="Temperature (Degrees C) (Feature value)",low="#2B1BFD", high="#FC1C21")+
+      labs(title="Distribution of SHAP values for 
+      Systolic Blood Pressure and their interaction with Temperature")+
+  xlab("Systolic Blood Pressure (mmHg)")+
+  ylab("SHAP values for Systolic Blood Pressure (mmHg)")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5))
+SBPxTemp
+
+SBPxTempxTemp=shap.plot.dependence(Shapvals, 
+                              x="Systolic_Blood_Pressure_mmHg",
+                              y="Temperature_Degrees_C",
+                              color_feature = "Temperature_Degrees_C",
+                              smooth=FALSE
+)+
+  geom_smooth(color="black")+
+  scale_color_gradient(name="Temperature (Degrees C) (Feature value)",low="#2B1BFD", high="#FC1C21")+
+  labs(title="Distribution of SHAP values for 
+      Systolic Blood Pressure and their interaction with Temperature")+
+  xlab("Systolic Blood Pressure (mmHg)")+
+  ylab("SHAP values for Temperature (Degrees C)")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5))
+SBPxTempxTemp
+
+TempxSBP=shap.plot.dependence(Shapvals, 
+                              x="Temperature_Degrees_C",
+                              color_feature = "Systolic_Blood_Pressure_mmHg",
+                              smooth=FALSE
+)+
+  geom_smooth(color="black")+
+  scale_color_gradient(name="Systolic Blood Pressure (mmHg) (Feature value)",low="#2B1BFD", high="#FC1C21")+
+  labs(title="Distribution of SHAP values for 
+       Temperature and their interaction with Blood Pressure")+
+  xlab("Temperature (Degrees C)")+
+  ylab("SHAP values for Temperature (Degrees C)")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5))
+TempxSBP
+
+SBPxBM=shap.plot.dependence(Shapvals, 
+                     x="Systolic_Blood_Pressure_mmHg",
+                     color_feature = "Capillary_Blood_Glucose_mmol_L",
+                     smooth=FALSE
+                     )+
+  geom_smooth(color="black")+
+  scale_color_gradient(name="Glucose (mmol/L) (Feature value)", low="#2B1BFD", high="#FC1C21")+
+  labs(title="Distribution of SHAP values for 
+      Systolic Blood Pressure and their interaction with Glucose")+
+  xlab("Systolic Blood Pressure (mmHg)")+
+  ylab("SHAP values for Systolic Blood Pressure (mmHg)")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5))
+SBPxBM
+
+SBPxArm=shap.plot.dependence(Shapvals, 
+                     x="Systolic Blood Pressure mmHg",
+                     color_feature = "Arm Weakness",
+                     smooth=FALSE
+                     )+
+  geom_smooth(color="black")+
+  scale_color_gradient(name="Arm Weakness (Feature value)", low="#2B1BFD", high="#FC1C21")+
+  labs(title="Distribution of SHAP values for Systolic Blood Pressure
+       and their interaction with Arm Weakness")+
+  xlab("Systolic Blood Pressure (mmHg)")+
+  ylab("SHAP values for Systolic Blood Pressure")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5))
+SBPxArm
+
+BMxSBP=shap.plot.dependence(Shapvals, 
+                            x="Capillary_Blood_Glucose_mmol_L",
+                            color_feature = "Systolic_Blood_Pressure_mmHg",
+                            smooth=FALSE
+)+
+  geom_smooth(color="black")+
+  scale_color_gradient(name="Systolic Blood Pressure (mmHg) (Feature value)", low="#2B1BFD", high="#FC1C21")+
+  labs(title="Distribution of SHAP values for Glucose
+       and their interaction with Systolic Blood Pressure")+
+  xlab("Glucose (mmol/L)")+
+  ylab("SHAP values for Glucose (mmol/L)")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5))
+BMxSBP
+
+#HR x POS
+HRxPOS=shap.plot.dependence(Shapvals, 
+                            x="Peripheral_Oxygen_Saturation_Percent",
+                            color_feature = "Heart_Rate_BPM",
+                            smooth=FALSE
+)+
+  geom_smooth(color="black")+
+  scale_color_gradient(name="Heart Rate (BPM) (Feature value)", low="#2B1BFD", high="#FC1C21")+
+  labs(title="Distribution of SHAP values for Peripheral Oxygen Saturation
+       and their interaction with Heart Rate")+
+  xlab("Peripheral Oxygen Saturation (%)")+
+  ylab("SHAP values for Peripheral Oxygen Saturation (%)")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5))
+HRxPOS
+
+#POSxHR
+POSxHR=shap.plot.dependence(Shapvals, 
+                            x="Heart_Rate_BPM",
+                            color_feature = "Peripheral_Oxygen_Saturation_Percent",
+                            smooth=FALSE
+)+
+  geom_smooth(color="black")+
+  scale_color_gradient(name="Peripheral Oxygen Saturation (%) (Feature value)", low="#2B1BFD", high="#FC1C21")+
+  labs(title="Distribution of SHAP values for Heart Rate
+       and their interaction with Peripheral Oxygen Saturation")+
+  xlab("Heart Rate (BPM)")+
+  ylab("SHAP values for Heart Rate (BPM)")+
+  theme(plot.title = element_text(face="bold", size=10, hjust=0.5))
+POSxHR
+
+#Strongest interactions facet
+Strong_grid=gridExtra::grid.arrange(SBPxDBP, DBPxSBP, AgexGender, AgexArm, HRxPOS, POSxHR, AgexConf, AgexHA, nrow=2)
+Strong_grid
+
+ggsave(plot=Strong_grid, path="H:/Documents/PhD/1. Retrospective Study (Machine Learning)/Analysis/XGB Results/Complete Cases Analysis/Dependence Plots", filename="Dependency Interactions Facet.png", height=12, width=22)
+
+```
+
+#####ICE Curves#####
+```{r}
+xgb_modelsub=xgb_model
+xgb_modelsub$feature_names=gsub(" ", "_", xgb_modelsub$feature_names)
+
+DX_Test_num=DX_Test
+DX_Test_num$Gender=as.numeric(mapvalues(DX_Test_num$Gender, c("Male", "Female"), c(1, 2)))
+DX_Test_num_nodx=DX_Test_num%>%
+  select(-Diagnosis)
+DX_Te_Mx=as.matrix(data.frame(DX_Test_num_nodx))
+
+Arm_ICE=plot(ice(xgb_modelsub, X=DX_Te_Mx, predictor="Arm_Weakness", logodds=TRUE))
+Arm_ICE
+
+SBP_ICE=plot(ice(xgb_modelsub, X=DX_Te_Mx, predictor="Systolic_Blood_Pressure_mmHg", logodds=TRUE))
+SBP_ICE
+
+Age_ICE=plot(ice(xgb_modelsub, X=DX_Te_Mx, predictor="Age_in_Years", logodds=TRUE))
+Age_ICE
+
+Speech_ICE=plot(ice(xgb_modelsub, X=DX_Te_Mx, predictor="Speech_Disturbance", logodds=TRUE))
+Speech_ICE
+
+Stroke_ICE=plot(ice(xgb_modelsub, X=DX_Te_Mx, predictor="History_of_Stroke", logodds=TRUE))
+Stroke_ICE
+
+Temp_ICE=plot(ice(xgb_modelsub, X=DX_Te_Mx, predictor="Temperature_Degrees_C", logodds=TRUE))
+Temp_ICE
+
+Gender_ICE=plot(ice(xgb_modelsub, X=DX_Te_Mx, predictor="Gender", logodds=TRUE))
+Gender_ICE
+
+HA_ICE=plot(ice(xgb_modelsub, X=DX_Te_Mx, predictor="Headache", logodds=TRUE))
+HA_ICE
+
+IP_ICE=plot(ice(xgb_modelsub, X=DX_Te_Mx, predictor="Irregular_Pulse", logodds=TRUE))
+IP_ICE
+
+BM_ICE=plot(ice(xgb_modelsub, X=DX_Te_Mx, predictor="Capillary_Blood_Glucose_mmol_L", logodds=TRUE))
+BM_ICE
+
+```
+
+#####Model Development#####
+```{r}
+
+####visualise model and interactions#######
+
+#plot lollipop plot (of tree development)
+#shows vars and interactions for each tree in the model
+
+lolly=lollipop(xgb_model, X_train)
+lolliplot=plot(lolly, labels="topAll", log_scale=TRUE, max.overlaps=Inf, width=10000, col=c("#37C5F7", "#36A9F8", "#3664F8", "#6037F7", 
+                                                                                               "#8537F7", "#A037F7", "#C937F7", "#F139F5", 
+                                                                                               "#F539DA", "#F539B2", "#F43A8A", "#F43A62", "#F23C3C" 
+), bg=c("#37C5F7", "#36A9F8", "#3664F8", "#6037F7", "#8537F7", "#A037F7", "#C937F7", "#F139F5", "#F539DA", "#F539B2", "#F43A8A", "#F43A62", "#F23C3C" 
+))+
+  scale_color_manual(values=c("#37C5F7", "#36A9F8", "#3664F8", "#6037F7", 
+                              "#8537F7", "#A037F7", "#C937F7", "#F139F5", 
+                              "#F539DA", "#F539B2", "#F43A8A", "#F43A62", "#F23C3C" 
+                              ), name="Depth")+
+  scale_shape_manual(values=c(0, 1, 2, 4, 3, 5, 6, 7, 9, 11, 12, 13, 14), name="Depth")
+lolliplot
+
+setwd("~/Documents/PhD/1. Retrospective Study (Machine Learning)/Analysis/XGB Results/Complete Cases Analysis/Interactions")
+Lolliplot=export_graph(lolliplot, file_name="Lollipop.svg", file_type ="svg", width=10000)
+setwd("~/Documents")
+
+Lolliplot=export_svg(lolliplot)
+
+```
+
+##### Plot trees (whole model) ########
+```{r}
+#for binary features, split for yes/no is >/< .5 
+#render needs to be false to save graphs
+
+#All trees (ensemble - whole model):
+All_Trees=xgb.plot.tree(model = xgb_model, show_node_id = TRUE, render=FALSE)
+All_Trees$nodes_df$fillcolor=ifelse(All_Trees$nodes_df$shape=='rectangle', "#E4D8C6", "#B8EED2")
+render_graph(All_Trees)
+
+setwd("~/Documents/PhD/1. Retrospective Study (Machine Learning)/Analysis/XGB Results/Complete Cases Analysis/Decision Trees")
+export_graph(All_Trees, file_name="All Trees.svg", file_type ="svg")
+setwd("~/Documents")
+
+```
+
+#####Plot final trees - shows thresholds and can use to calc probabilities ###############
+```{r}
+
+#One tree representing multiple (hard to interpret)
+
+Collapsed_Trees=xgb.plot.multi.trees(model = xgb_model, trees = 0:4, show_node_id = TRUE, render=FALSE, features_keep = 5)
+render_graph(Collapsed_Trees)
+
+setwd("~/Documents/PhD/1. Retrospective Study (Machine Learning)/Analysis/XGB Results/Complete Cases Analysis/Decision Trees")
+export_graph(Collapsed_Trees, "Combined Trees.png")
+setwd("~/Documents")
+
+#Tree 1/79
+Tree_1=xgb.plot.tree(model = xgb_model, trees = 0, show_node_id = TRUE, render=FALSE)
+Tree_1$nodes_df$fillcolor=ifelse(Tree_1$nodes_df$shape=='rectangle', "#E4D8C6", "#B8EED2")
+render_graph(Tree_1)
+
+setwd("~/Documents/PhD/1. Retrospective Study (Machine Learning)/Analysis/XGB Results/Complete Cases Analysis/Decision Trees")
+export_graph(Tree_1, "Tree One.png")
+setwd("~/Documents")
+
+#First 5 trees
+Five_trees=xgb.plot.tree(model = xgb_model, trees = 0:4, show_node_id = TRUE, render=FALSE)
+Five_trees$nodes_df$fillcolor=ifelse(Five_trees$nodes_df$shape=='rectangle', "#E4D8C6", "#B8EED2")
+render_graph(Five_trees)
+
+setwd("~/Documents/PhD/1. Retrospective Study (Machine Learning)/Analysis/XGB Results/Complete Cases Analysis/Decision Trees")
+export_graph(Five_trees, "5 Trees.png")
+setwd("~/Documents")
+
+#Tree 93/93
+Tree_93=xgb.plot.tree(model = xgb_model, trees = 92, show_node_id = TRUE, render=FALSE)
+Tree_93$nodes_df$fillcolor=ifelse(Tree_93$nodes_df$shape=='rectangle', "#E4D8C6", "#B8EED2")
+render_graph(Tree_93)
+
+setwd("~/Documents/PhD/1. Retrospective Study (Machine Learning)/Analysis/XGB Results/Complete Cases Analysis/Decision Trees")
+export_graph(Tree_93, "Tree 93.png")
+setwd("~/Documents")
+
+
+#First 20 trees
+Twenty_trees=xgb.plot.tree(model = xgb_model, trees = 0:19, show_node_id = TRUE, render=FALSE)
+Twenty_trees$nodes_df$fillcolor=ifelse(Twenty_trees$nodes_df$shape=='rectangle', "#E4D8C6", "#B8EED2")
+render_graph(Twenty_trees)
+
+setwd("~/Documents/PhD/1. Retrospective Study (Machine Learning)/Analysis/XGB Results/Complete Cases Analysis/Decision Trees")
+export_graph(Twenty_trees, "20 Trees.png")
+setwd("~/Documents")
+
+
+#First 10 trees
+Ten_trees=xgb.plot.tree(model = xgb_model, trees = 0:9, show_node_id = TRUE, render=FALSE)
+Ten_trees$nodes_df$fillcolor=ifelse(Ten_trees$nodes_df$shape=='rectangle', "#E4D8C6", "#B8EED2")
+render_graph(Ten_trees)
+
+setwd("~/Documents/PhD/1. Retrospective Study (Machine Learning)/Analysis/XGB Results/Complete Cases Analysis/Decision Trees")
+export_graph(Ten_trees, "10 Trees.png")
+setwd("~/Documents")
+
+
+```
+
+#####Plot depth of model (number of leaves)#####
+```{r}
+
+Stroke_Depth=xgb.plot.deepness(xgb_model, which=c("max.depth"),pch=16, col=rgb(.5,0,.5,0.8), cex=1)
+Stroke_Depth
+
+Stroke_Depthdf=data.frame(Stroke_Depth)
+
+Stroke_Depth=ggplot(Stroke_Depthdf, aes(x=Tree, y=Depth, color=Tree))+
+  geom_point()+
+  scale_color_gradient(low="blue", high="red")+
+    theme_classic()+
+  labs(title = "Maximum Leaf Depth for Each Tree in the Model", x="Tree Number")+
+  theme(plot.title = element_text(size=10, face="bold", hjust=.5))
+
+median(Stroke_Depthdf$Depth)
+IQR(Stroke_Depthdf$Depth)
+min(Stroke_Depthdf$Depth)
+max(Stroke_Depthdf$Depth)
+
+ggsave(plot=Stroke_Depth, path="~/Documents/PhD/1. Retrospective Study (Machine Learning)/Analysis/XGB Results/Complete Cases Analysis/Decision Trees", filename="Model Tree Depth.png", height=3, width=5)
+
+```
+
+#####Numeric Tree Info#########
+```{r}
+#nodes are split based on gain 
+Tree_text_D=xgb.dump(xgb_model, with_stats = TRUE)
+Tree_text=as.data.frame(Tree_text_D)
+Tree_text
+```
+
+#####Numeric Feature thresholds and leaf values etc########
+```{r}
+
+Tree_Info=as.data.frame(xgb.model.dt.tree(feature_names = NULL, model=xgb_model, use_int_id = FALSE))
+Tree_Info
+Tree_Info=as.data.frame(xgb.model.dt.tree(feature_names = NULL, model=xgb_model, text=Tree_text_D, use_int_id = FALSE))
+
+#Example of all node splits for Age
+Age_splits=filter(Tree_Info, Feature=="Age_in_Years")%>%
+  select(Feature, Split)
+Age_splits=unique(Age_splits)
+Age_splits
+nrow(Age_splits)
+
+range(Age_splits$Split)
+
+#Example of all node splits for SBP
+SBP_splits=filter(Tree_Info, Feature=="Systolic_Blood_Pressure_mmHg")%>%
+  select(Feature, Split)
+SBP_splits=unique(SBP_splits)
+SBP_splits
+
+nrow(SBP_splits)
+
+range(SBP_splits$Split)
+
+#Example of all node splits for Temperature
+Temp_splits=filter(Tree_Info, Feature=="Temperature_Degrees_C")%>%
+  select(Feature, Split)
+Temp_splits=unique(Temp_splits)
+Temp_splits
+
+nrow(Temp_splits) 
+
+range(Temp_splits$Split)
+
+#Example of all node splits for glucose 
+BM_splits=filter(Tree_Info, Feature=="Capillary_Blood_Glucose_mmol_L")%>%
+  select(Feature, Split)
+BM_splits=unique(BM_splits)
+BM_splits
+
+nrow(BM_splits)
+
+range(BM_splits$Split)
+
+
+```
+
+##Save final model#####
+```{r}
+
+xgb.save(xgb_model, "XGB Stroke vs Mimic Model CC")
+
+setwd("~/Documents/PhD/1. Retrospective Study (Machine Learning)/Analysis/XGB Results/Complete Cases Analysis")
+xgb_model=xgb.load("XGB Stroke vs Mimic Model CC")
+
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
